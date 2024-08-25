@@ -3,7 +3,7 @@ from typing import List, Tuple
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
-from mindspore import Parameter, Tensor
+from mindspore import Parameter, Tensor, ParameterTuple
 
 _adam_opt = ops.MultitypeFuncGraph("adam_opt")
 
@@ -42,27 +42,25 @@ def _update_run_op(
         return gradient
 
     param_fp32 = ops.cast(param, ms.float32)
-    m_fp32 = ops.cast(m, ms.float32)
-    v_fp32 = ops.cast(v, ms.float32)
-    gradient = gradient.to(ms.float32)
+    gradient = ops.cast(gradient, ms.float32)
 
     if decay_flag:
         param_fp32 = param_fp32 - lr * weight_decay * param_fp32
 
-    m_fp32 = beta1 * m_fp32 + (1 - beta1) * gradient
-    v_fp32 = beta2 * v_fp32 + (1 - beta2) * ops.square(gradient)
-    ops.assign(m, m_fp32.to(m.dtype))
-    ops.assign(v, v_fp32.to(v.dtype))
+    ops.assign(m, beta1 * m + (1 - beta1) * gradient)
+    ops.assign(v, beta2 * v + (1 - beta2) * ops.square(gradient))
 
-    m_fp32 = m_fp32 / (1 - beta1_power)
-    v_fp32 = v_fp32 / (1 - beta2_power)
+    m_hat = m / (1 - beta1_power)
+    v_hat = v / (1 - beta2_power)
 
-    param_fp32 = param_fp32 - lr * m_fp32 / (ops.sqrt(v_fp32) + eps)
+    param_fp32 = param_fp32 - lr * m_hat / (ops.sqrt(v_hat) + eps)
     ops.assign(param, param_fp32.to(param.dtype))
     return param
 
 
 class AdamW(nn.Optimizer):
+    """Following https://pytorch.org/docs/stable/generated/torch.optim.AdamW.html"""
+
     _support_parallel_optimizer = True
 
     def __init__(
@@ -77,8 +75,18 @@ class AdamW(nn.Optimizer):
         self.beta1 = Tensor(betas[0], dtype=ms.float32)
         self.beta2 = Tensor(betas[1], dtype=ms.float32)
         self.eps = Tensor(eps, dtype=ms.float32)
-        self.moments1 = self._parameters.clone(prefix="adam_m", init="zeros")
-        self.moments2 = self._parameters.clone(prefix="adam_v", init="zeros")
+        self.moments1 = ParameterTuple(
+            [
+                Parameter(ops.zeros_like(x, dtype=ms.float32), name=x.name + "_m")
+                for x in self._parameters
+            ]
+        )
+        self.moments2 = ParameterTuple(
+            [
+                Parameter(ops.zeros_like(x, dtype=ms.float32), name=x.name + "_v")
+                for x in self._parameters
+            ]
+        )
 
         self.beta1_power = Parameter(Tensor(1, dtype=ms.float32))
         self.beta2_power = Parameter(Tensor(1, dtype=ms.float32))

@@ -1,5 +1,5 @@
-from typing import List, Tuple
 import time
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import mindspore as ms
@@ -10,6 +10,7 @@ from mindspore.dataset import Cifar10Dataset, Dataset
 from mindspore.dataset.vision import Normalize, ToTensor
 from mindspore.train.callback import Callback, LossMonitor
 from net import resnet50
+
 from optim.adamw import AdamW
 
 
@@ -39,12 +40,14 @@ def create_dataset() -> Tuple[Dataset, Dataset]:
         Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], is_hwc=False),
     ]
 
-    dataset = Cifar10Dataset(data_path, usage="train", num_samples=10000)
+    dataset = Cifar10Dataset(data_path, usage="train", num_samples=10000, shuffle=True)
     dataset = dataset.map(transforms, input_columns="image")
     dataset = dataset.map(lambda x: x.astype(np.int32), input_columns="label")
     dataset = dataset.batch(256, drop_remainder=True)
 
-    val_dataset = Cifar10Dataset(data_path, usage="test", num_samples=2500)
+    val_dataset = Cifar10Dataset(
+        data_path, usage="test", num_samples=2500, shuffle=False
+    )
     val_dataset = val_dataset.map(transforms, input_columns="image")
     val_dataset = val_dataset.map(lambda x: x.astype(np.int32), input_columns="label")
     val_dataset = val_dataset.batch(256, drop_remainder=False)
@@ -62,7 +65,7 @@ def main():
         net,
         loss_fn=nn.CrossEntropyLoss(),
         optimizer=AdamW(net.trainable_params(), lr=0.0001, weight_decay=0.01),
-        metrics=dict(accuracy=nn.Top1CategoricalAccuracy()),
+        metrics={"accuracy"},
     )
     start = time.time()
     model.fit(5, dataset, val_dataset, callbacks=[LossMonitor(), LossDrawer()])

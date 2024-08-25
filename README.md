@@ -21,4 +21,4 @@ tar xzf data/cifar-10-binary.tar.gz -C tests/data/
 rm -r tests/data/cifar-10-binary.tar.gz
 ```
 
-2. run `python test/train.py`
+2. run `python tests/train.py`
