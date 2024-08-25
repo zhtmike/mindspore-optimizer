@@ -4,8 +4,8 @@ An implementation of the Mindspore optimizer that functions similarly to PyTorch
 
 ## Environment
 
-python >= 3.9
-mindspore >= 2.2.14
+- python >= 3.9
+- mindspore >= 2.2.14
 
 ## Support Optimizers
 
