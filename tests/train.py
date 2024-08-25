@@ -32,7 +32,7 @@ class LossDrawer(Callback):
 
 
 def create_dataset() -> Tuple[Dataset, Dataset]:
-    data_path = "data/cifar-10-batches-bin"
+    data_path = "tests/data/cifar-10-batches-bin"
 
     transforms = [
         ToTensor(),

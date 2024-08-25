@@ -16,9 +16,9 @@ mindspore >= 2.2.14
 1. prepare the dataset
 
 ```bash
-wget https://mindspore-website.obs.cn-north-4.myhuaweicloud.com/notebook/datasets/cifar-10-binary.tar.gz -P data/
-tar xzf data/cifar-10-binary.tar.gz -C data/
-rm -r data/cifar-10-binary.tar.gz
+wget https://mindspore-website.obs.cn-north-4.myhuaweicloud.com/notebook/datasets/cifar-10-binary.tar.gz -P tests/data/
+tar xzf data/cifar-10-binary.tar.gz -C tests/data/
+rm -r tests/data/cifar-10-binary.tar.gz
 ```
 
 2. run `python test/train.py`

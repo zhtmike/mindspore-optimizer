@@ -1,4 +1,6 @@
-data/*
+tests/data/*
 
 *.pyc
 *.jpg
+
+rank_*/
