@@ -5,13 +5,13 @@ import matplotlib.pyplot as plt
 import mindspore as ms
 import mindspore.nn as nn
 import numpy as np
+from mindcv.models.vit import VisionTransformer
 from mindspore import Model
 from mindspore.dataset import Cifar10Dataset, Dataset
-from mindspore.dataset.vision import Normalize, ToTensor, Resize
+from mindspore.dataset.vision import ToTensor
 from mindspore.train.callback import Callback, LossMonitor
-from mindcv.models.vit import vit_b_16_224
 
-from optim import AdamW
+from optim import AdaFactor
 
 
 class LossDrawer(Callback):
@@ -30,7 +30,6 @@ class LossDrawer(Callback):
         plt.xlabel("step")
         plt.ylabel("loss")
         plt.savefig("loss.jpg")
-
 
 
 class TimeMonitor(Callback):
@@ -60,23 +59,17 @@ class TimeMonitor(Callback):
 def create_dataset() -> Tuple[Dataset, Dataset]:
     data_path = "tests/data/cifar-10-batches-bin"
 
-    transforms = [
-        Resize(224),
-        ToTensor(),
-        Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], is_hwc=False),
-    ]
+    transforms = [ToTensor()]
 
-    dataset = Cifar10Dataset(data_path, usage="train", num_samples=1000, shuffle=True)
+    dataset = Cifar10Dataset(data_path, usage="train", shuffle=True)
     dataset = dataset.map(transforms, input_columns="image")
     dataset = dataset.map(lambda x: x.astype(np.int32), input_columns="label")
-    dataset = dataset.batch(64, drop_remainder=True)
+    dataset = dataset.batch(512, drop_remainder=True)
 
-    val_dataset = Cifar10Dataset(
-        data_path, usage="test", num_samples=100, shuffle=False
-    )
+    val_dataset = Cifar10Dataset(data_path, usage="test", shuffle=False)
     val_dataset = val_dataset.map(transforms, input_columns="image")
     val_dataset = val_dataset.map(lambda x: x.astype(np.int32), input_columns="label")
-    val_dataset = val_dataset.batch(64, drop_remainder=False)
+    val_dataset = val_dataset.batch(512, drop_remainder=False)
     return dataset, val_dataset
 
 
@@ -84,16 +77,26 @@ def main():
     ms.set_seed(0)
     ms.set_context(mode=ms.GRAPH_MODE)
 
-    net = vit_b_16_224(num_classes=10)
+    net = VisionTransformer(
+        image_size=32,
+        patch_size=8,
+        embed_dim=192,
+        depth=12,
+        num_heads=3,
+        num_classes=10,
+    )
     dataset, val_dataset = create_dataset()
 
     model = Model(
         net,
         loss_fn=nn.CrossEntropyLoss(),
-        optimizer=AdamW(net.trainable_params()),
+        optimizer=AdaFactor(net.trainable_params()),
         metrics={"accuracy"},
     )
-    model.fit(10, dataset, val_dataset, callbacks=[LossMonitor(), LossDrawer(), TimeMonitor()])
+    model.fit(
+        10, dataset, val_dataset, callbacks=[LossMonitor(), LossDrawer(), TimeMonitor()]
+    )
+
 
 if __name__ == "__main__":
     main()
