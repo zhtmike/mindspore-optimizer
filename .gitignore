@@ -4,3 +4,6 @@ tests/data/*
 *.jpg
 
 rank_*/
+kernel_meta/
+
+aclinit.json
