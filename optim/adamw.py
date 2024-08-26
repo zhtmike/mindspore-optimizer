@@ -41,20 +41,24 @@ def _update_run_op(
     if not optim_filter:
         return gradient
 
+    dtype = param.dtype
     param_fp32 = ops.cast(param, ms.float32)
     gradient = ops.cast(gradient, ms.float32)
 
     if decay_flag:
         param_fp32 = param_fp32 - lr * weight_decay * param_fp32
 
-    ops.assign(m, beta1 * m + (1 - beta1) * gradient)
-    ops.assign(v, beta2 * v + (1 - beta2) * ops.square(gradient))
+    m_next = beta1 * m + (1 - beta1) * gradient
+    v_next = beta2 * v + (1 - beta2) * ops.square(gradient)
 
     m_hat = m / (1 - beta1_t)
     v_hat = v / (1 - beta2_t)
 
     param_fp32 = param_fp32 - lr * m_hat / (ops.sqrt(v_hat) + eps)
-    ops.assign(param, param_fp32.to(param.dtype))
+    param_next = ops.cast(param_fp32, dtype)
+    ops.assign(param, param_next)
+    ops.assign(m, m_next)
+    ops.assign(v, v_next)
     return param
 
 
