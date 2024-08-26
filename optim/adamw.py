@@ -26,8 +26,8 @@ _adam_opt = ops.MultitypeFuncGraph("adam_opt")
 def _update_run_op(
     beta1: Tensor,
     beta2: Tensor,
-    beta1_power: Parameter,
-    beta2_power: Parameter,
+    beta1_t: Parameter,
+    beta2_t: Parameter,
     eps: Tensor,
     lr: Tensor,
     weight_decay: Tensor,
@@ -50,8 +50,8 @@ def _update_run_op(
     ops.assign(m, beta1 * m + (1 - beta1) * gradient)
     ops.assign(v, beta2 * v + (1 - beta2) * ops.square(gradient))
 
-    m_hat = m / (1 - beta1_power)
-    v_hat = v / (1 - beta2_power)
+    m_hat = m / (1 - beta1_t)
+    v_hat = v / (1 - beta2_t)
 
     param_fp32 = param_fp32 - lr * m_hat / (ops.sqrt(v_hat) + eps)
     ops.assign(param, param_fp32.to(param.dtype))
@@ -88,8 +88,8 @@ class AdamW(nn.Optimizer):
             ]
         )
 
-        self.beta1_power = Parameter(Tensor(1, dtype=ms.float32))
-        self.beta2_power = Parameter(Tensor(1, dtype=ms.float32))
+        self.beta1_t = Parameter(Tensor(1, dtype=ms.float32))
+        self.beta2_t = Parameter(Tensor(1, dtype=ms.float32))
 
     @ms.jit
     def construct(self, gradients: List[Tensor]):
@@ -98,8 +98,8 @@ class AdamW(nn.Optimizer):
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
 
-        ops.assign(self.beta1_power, self.beta1_power * self.beta1)
-        ops.assign(self.beta2_power, self.beta2_power * self.beta1)
+        ops.assign(self.beta1_t, self.beta1_t * self.beta1)
+        ops.assign(self.beta2_t, self.beta2_t * self.beta2)
 
         if self.is_group:
             if self.is_group_lr:
@@ -108,8 +108,8 @@ class AdamW(nn.Optimizer):
                         _adam_opt,
                         self.beta1,
                         self.beta2,
-                        self.beta1_power,
-                        self.beta2_power,
+                        self.beta1_t,
+                        self.beta2_t,
                         self.eps,
                     ),
                     lr,
@@ -127,8 +127,8 @@ class AdamW(nn.Optimizer):
                         _adam_opt,
                         self.beta1,
                         self.beta2,
-                        self.beta1_power,
-                        self.beta2_power,
+                        self.beta1_t,
+                        self.beta2_t,
                         self.eps,
                         lr,
                     ),
@@ -146,8 +146,8 @@ class AdamW(nn.Optimizer):
                     _adam_opt,
                     self.beta1,
                     self.beta2,
-                    self.beta1_power,
-                    self.beta2_power,
+                    self.beta1_t,
+                    self.beta2_t,
                     self.eps,
                     lr,
                     weight_decay,
