@@ -1,18 +1,14 @@
-from typing import List, Tuple
+from typing import List
 
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 from mindspore import Parameter, ParameterTuple, Tensor
 
-_adam_opt = ops.MultitypeFuncGraph("adam_opt")
+_rmsprop_opt = ops.MultitypeFuncGraph("rmsprop_opt")
 
 
-@_adam_opt.register(
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
+@_rmsprop_opt.register(
     "Tensor",
     "Tensor",
     "Tensor",
@@ -24,15 +20,11 @@ _adam_opt = ops.MultitypeFuncGraph("adam_opt")
     "Bool",
 )
 def _update_run_op(
-    beta1: Tensor,
-    beta2: Tensor,
-    beta1_t: Parameter,
-    beta2_t: Parameter,
+    alpha: Tensor,
     eps: Tensor,
     lr: Tensor,
     weight_decay: Tensor,
     param: Parameter,
-    m: Parameter,
     v: Parameter,
     gradient: Tensor,
     decay_flag: bool,
@@ -46,24 +38,19 @@ def _update_run_op(
     gradient = ops.cast(gradient, ms.float32)
 
     if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
+        gradient = gradient + weight_decay * param_
 
-    m_next = beta1 * m + (1 - beta1) * gradient
-    v_next = beta2 * v + (1 - beta2) * ops.square(gradient)
+    v_next = alpha * v + (1 - alpha) * ops.square(gradient)
 
-    m_hat = m_next / (1 - beta1_t)
-    v_hat = v_next / (1 - beta2_t)
-
-    param_ = param_ - lr * m_hat / (ops.sqrt(v_hat) + eps)
+    param_ = param_ - lr * gradient / (ops.sqrt(v_next) + eps)
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
-    ops.assign(m, m_next)
     ops.assign(v, v_next)
     return param_
 
 
-class AdamW(nn.Optimizer):
-    """Following https://pytorch.org/docs/stable/generated/torch.optim.AdamW.html"""
+class RMSprop(nn.Optimizer):
+    """Following https://pytorch.org/docs/stable/generated/torch.optim.RMSprop.html"""
 
     _support_parallel_optimizer = True
 
@@ -71,24 +58,13 @@ class AdamW(nn.Optimizer):
         self,
         params: List[Parameter],
         lr: float = 0.001,
-        betas: Tuple[float, float] = (0.9, 0.999),
+        alpha: float = 0.99,
         eps: float = 1e-8,
-        weight_decay: float = 0.01,
+        weight_decay: float = 0.0,
     ) -> None:
         super().__init__(lr, params, weight_decay)
-        self.beta1 = Tensor(betas[0], dtype=ms.float32)
-        self.beta2 = Tensor(betas[1], dtype=ms.float32)
+        self.alpha = Tensor(alpha, dtype=ms.float32)
         self.eps = Tensor(eps, dtype=ms.float32)
-        self.moments1 = ParameterTuple(
-            [
-                Parameter(
-                    ops.zeros_like(x, dtype=ms.float32),
-                    name=x.name + "_m",
-                    requires_grad=False,
-                )
-                for x in self._parameters
-            ]
-        )
         self.moments2 = ParameterTuple(
             [
                 Parameter(
@@ -100,9 +76,6 @@ class AdamW(nn.Optimizer):
             ]
         )
 
-        self.beta1_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
-        self.beta2_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
-
     @ms.jit
     def construct(self, gradients: List[Tensor]):
         gradients = self.flatten_gradients(gradients)
@@ -110,24 +83,17 @@ class AdamW(nn.Optimizer):
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
 
-        ops.assign(self.beta1_t, self.beta1_t * self.beta1)
-        ops.assign(self.beta2_t, self.beta2_t * self.beta2)
-
         if self.is_group:
             if self.is_group_lr:
                 optim_result = self.hyper_map(
                     ops.partial(
-                        _adam_opt,
-                        self.beta1,
-                        self.beta2,
-                        self.beta1_t,
-                        self.beta2_t,
+                        _rmsprop_opt,
+                        self.alpha,
                         self.eps,
                     ),
                     lr,
                     weight_decay,
                     self._parameters,
-                    self.moments1,
                     self.moments2,
                     gradients,
                     self.decay_flags,
@@ -136,17 +102,13 @@ class AdamW(nn.Optimizer):
             else:
                 optim_result = self.hyper_map(
                     ops.partial(
-                        _adam_opt,
-                        self.beta1,
-                        self.beta2,
-                        self.beta1_t,
-                        self.beta2_t,
+                        _rmsprop_opt,
+                        self.alpha,
                         self.eps,
                         lr,
                     ),
                     weight_decay,
                     self._parameters,
-                    self.moments1,
                     self.moments2,
                     gradients,
                     self.decay_flags,
@@ -155,17 +117,13 @@ class AdamW(nn.Optimizer):
         else:
             optim_result = self.hyper_map(
                 ops.partial(
-                    _adam_opt,
-                    self.beta1,
-                    self.beta2,
-                    self.beta1_t,
-                    self.beta2_t,
+                    _rmsprop_opt,
+                    self.alpha,
                     self.eps,
                     lr,
                     weight_decay,
                 ),
                 self._parameters,
-                self.moments1,
                 self.moments2,
                 gradients,
                 self.decay_flags,

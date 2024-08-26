@@ -1,6 +1,6 @@
 # (Unofficial) Mindspore Optimizer
 
-An implementation of the Mindspore optimizer that functions similarly to PyTorch’s optimizer
+An implementation of the Mindspore optimizer that functions similarly to PyTorch’s optimizer.
 
 ## Environment
 
@@ -9,7 +9,9 @@ An implementation of the Mindspore optimizer that functions similarly to PyTorch
 
 ## Support Optimizers
 
+- RMSprop
 - AdamW
+- AdaFactor
 
 ## Test
 To test the optimizer, follow these steps using the CIFAR-10 dataset:
@@ -18,6 +20,12 @@ To test the optimizer, follow these steps using the CIFAR-10 dataset:
 
 ```bash
 wget -c https://mindspore-website.obs.cn-north-4.myhuaweicloud.com/notebook/datasets/cifar-10-binary.tar.gz -P tests/data/ && tar xzf tests/data/cifar-10-binary.tar.gz -C tests/data/
+```
+
+2. Install `mindcv >= 0.3.0` by
+
+```bash
+pip install mindcv
 ```
 
 2. Start training by running:
