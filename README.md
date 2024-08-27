@@ -9,9 +9,10 @@ Highlights:
 
 ## Support Optimizers
 
-- RMSprop
-- AdamW
-- AdaFactor
+- [RMSprop](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
+- [AdamW](https://arxiv.org/abs/1711.05101)
+- [AdaFactor](https://arxiv.org/abs/1804.04235)
+- [CAME](https://arxiv.org/abs/2307.02047)
 
 ## Environment
 
