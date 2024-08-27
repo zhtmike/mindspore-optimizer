@@ -70,7 +70,7 @@ def _update_run_op(
     m_next = None
     if use_first_moment:
         m_next = beta1 * m + (1 - beta1) * u
-        u = m
+        u = m_next
 
     param_ = param_ - alpha * u
 
