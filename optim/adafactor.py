@@ -49,7 +49,8 @@ def _update_run_op(
     update = ops.square(gradient) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
-    if len(gradient.shape) >= 2:
+    factored = len(gradient.shape) >= 2
+    if factored:
         v_row_next = beta2 * v_row + (1 - beta2) * ops.mean(update, axis=-1)
         v_col_next = beta2 * v_col + (1 - beta2) * ops.mean(update, axis=-2)
         u = _approx_sq_grad(v_row_next, v_col_next)
@@ -58,15 +59,15 @@ def _update_run_op(
         v_next = beta2 * v + (1 - beta2) * update
         u = ops.rsqrt(v_next) * gradient
 
-    u = u / ops.clamp(_rms(u) / d, max=1.0)
+    u = u / ops.clamp(_rms(u) / d, min=1.0)
     param_ = param_ - alpha * u
 
     if decay_flag:
-        param_ = param_ - rho * weight_decay * param_
+        param_ = param_ - alpha * weight_decay * param_
 
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
-    if len(gradient.shape) >= 2:
+    if factored:
         ops.assign(v_row, v_row_next)
         ops.assign(v_col, v_col_next)
     else:

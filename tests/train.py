@@ -1,3 +1,4 @@
+import argparse
 import time
 from typing import List, Tuple
 
@@ -11,7 +12,13 @@ from mindspore.dataset import Cifar10Dataset, Dataset
 from mindspore.dataset.vision import ToTensor
 from mindspore.train.callback import Callback, LossMonitor
 
-from optim import AdaFactor
+from optim import AdaFactor, AdamW, RMSprop
+
+SUPPORT_OPTIMIZER = {
+    "adafactor": AdaFactor,
+    "adamw": AdamW,
+    "rmsprop": RMSprop,
+}
 
 
 class LossDrawer(Callback):
@@ -23,13 +30,14 @@ class LossDrawer(Callback):
         loss = float(np.mean(cb_params.net_outputs.asnumpy()))
         self.lr_records.append(loss)
 
-    def on_train_end(self, run_context):
+    def on_train_epoch_end(self, run_context):
         plt.figure()
         plt.plot(self.lr_records, ".-")
         plt.grid()
         plt.xlabel("step")
         plt.ylabel("loss")
         plt.savefig("loss.jpg")
+        plt.close()
 
 
 class TimeMonitor(Callback):
@@ -74,12 +82,24 @@ def create_dataset() -> Tuple[Dataset, Dataset]:
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Test Train", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "-n",
+        "--name",
+        required=True,
+        choices=list(SUPPORT_OPTIMIZER.keys()),
+        help="optimizer name",
+    )
+    args = parser.parse_args()
+
     ms.set_seed(0)
     ms.set_context(mode=ms.GRAPH_MODE)
 
     net = VisionTransformer(
         image_size=32,
-        patch_size=8,
+        patch_size=4,
         embed_dim=192,
         depth=12,
         num_heads=3,
@@ -90,7 +110,7 @@ def main():
     model = Model(
         net,
         loss_fn=nn.CrossEntropyLoss(),
-        optimizer=AdaFactor(net.trainable_params()),
+        optimizer=SUPPORT_OPTIMIZER[args.name](net.trainable_params()),
         metrics={"accuracy"},
     )
     model.fit(

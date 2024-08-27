@@ -31,7 +31,7 @@ pip install mindcv
 2. Start training by running:
 
 ```bash
-PYTHONPATH=$(pwd):$PYTHONPATH python tests/train.py
+PYTHONPATH=$(pwd):$PYTHONPATH python tests/train.py -n adafactor
 ```
 
-The loss curve will be saved as `loss.jpg`.
+During training, the results will be displayed in the terminal, and an additional loss curve plot named `loss.jpg` will be saved.
