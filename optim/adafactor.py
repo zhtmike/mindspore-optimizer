@@ -14,6 +14,9 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
     "Tensor",
     "Tensor",
     "Tensor",
+    "Bool",
+    "Tensor",
+    "Tensor",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -24,13 +27,16 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
     "Bool",
 )
 def _update_run_op(
-    beta2: Parameter,
+    beta1: Tensor,
+    beta2: Tensor,
     eps1: Tensor,
     eps2: Tensor,
     d: Tensor,
+    use_first_moment: bool,
     rho: Tensor,
     weight_decay: Tensor,
     param: Parameter,
+    m: Parameter,
     v_row: Parameter,
     v_col: Parameter,
     v: Parameter,
@@ -60,6 +66,12 @@ def _update_run_op(
         u = ops.rsqrt(v_next) * gradient
 
     u = u / ops.clamp(_rms(u) / d, min=1.0)
+
+    m_next = None
+    if use_first_moment:
+        m_next = beta1 * m + (1 - beta1) * u
+        u = m
+
     param_ = param_ - alpha * u
 
     if decay_flag:
@@ -72,6 +84,9 @@ def _update_run_op(
         ops.assign(v_col, v_col_next)
     else:
         ops.assign(v, v_next)
+
+    if use_first_moment:
+        ops.assign(m, m_next)
 
     return param_
 
@@ -101,6 +116,7 @@ class AdaFactor(nn.Optimizer):
         eps: Tuple[float, float] = (1e-30, 1e-3),
         clip_threshold: float = 1.0,
         decay_rate: float = -0.8,
+        beta1: Optional[float] = None,
         weight_decay: float = 0.0,
         relative_step: bool = True,
     ) -> None:
@@ -116,6 +132,12 @@ class AdaFactor(nn.Optimizer):
         self.clip_threshold = Tensor(clip_threshold, dtype=ms.float32)
         self.decay_rate = Tensor(decay_rate, dtype=ms.float32)
         self.relatvie_step = relative_step
+        if beta1 is None:
+            self.beta1 = Tensor(0.0, dtype=ms.float32)
+            self.use_first_moment = False
+        else:
+            self.beta1 = Tensor(beta1, dtype=ms.float32)
+            self.use_first_moment = True
 
         v_row, v_col, v = list(), list(), list()
         for x in self._parameters:
@@ -168,6 +190,29 @@ class AdaFactor(nn.Optimizer):
         self.v_col = ParameterTuple(v_col)
         self.v = ParameterTuple(v)
 
+        if self.use_first_moment:
+            self.m = ParameterTuple(
+                [
+                    Parameter(
+                        ops.zeros_like(x, dtype=ms.float32),
+                        name=x.name + "_m",
+                        requires_grad=False,
+                    )
+                    for x in self._parameters
+                ]
+            )
+        else:
+            self.m = ParameterTuple(
+                [
+                    Parameter(
+                        ops.zeros((1,), dtype=ms.float32),
+                        name=x.name + "_m",
+                        requires_grad=False,
+                    )
+                    for x in self._parameters
+                ]
+            )
+
     def _preprocess_single_lr(self, learning_rate):
         try:
             return super()._preprocess_single_lr(learning_rate)
@@ -200,14 +245,17 @@ class AdaFactor(nn.Optimizer):
                 optim_result = self.hyper_map(
                     ops.partial(
                         _adafactor_opt,
+                        self.beta1,
                         beta2,
                         self.eps1,
                         self.eps2,
                         self.clip_threshold,
+                        self.use_first_moment,
                     ),
                     rho,
                     weight_decay,
                     self._parameters,
+                    self.m,
                     self.v_row,
                     self.v_col,
                     self.v,
@@ -219,14 +267,17 @@ class AdaFactor(nn.Optimizer):
                 optim_result = self.hyper_map(
                     ops.partial(
                         _adafactor_opt,
+                        self.beta1,
                         beta2,
                         self.eps1,
                         self.eps2,
                         self.clip_threshold,
+                        self.use_first_moment,
                         rho,
                     ),
                     weight_decay,
                     self._parameters,
+                    self.m,
                     self.v_row,
                     self.v_col,
                     self.v,
@@ -238,14 +289,17 @@ class AdaFactor(nn.Optimizer):
             optim_result = self.hyper_map(
                 ops.partial(
                     _adafactor_opt,
+                    self.beta1,
                     beta2,
                     self.eps1,
                     self.eps2,
                     self.clip_threshold,
+                    self.use_first_moment,
                     rho,
                     weight_decay,
                 ),
                 self._parameters,
+                self.m,
                 self.v_row,
                 self.v_col,
                 self.v,
