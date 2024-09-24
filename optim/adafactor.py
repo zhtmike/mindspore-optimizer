@@ -158,7 +158,7 @@ class AdaFactor(nn.Optimizer):
                 )
                 v.append(
                     Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
+                        ops.zeros((1,), dtype=ms.uint8),
                         name=x.name + "_v",
                         requires_grad=False,
                     )
@@ -166,14 +166,14 @@ class AdaFactor(nn.Optimizer):
             else:
                 v_row.append(
                     Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
+                        ops.zeros((1,), dtype=ms.uint8),
                         name=x.name + "_v_row",
                         requires_grad=False,
                     )
                 )
                 v_col.append(
                     Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
+                        ops.zeros((1,), dtype=ms.uint8),
                         name=x.name + "_v_col",
                         requires_grad=False,
                     )
@@ -205,7 +205,7 @@ class AdaFactor(nn.Optimizer):
             self.m = ParameterTuple(
                 [
                     Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
+                        ops.zeros((1,), dtype=ms.uint8),
                         name=x.name + "_m",
                         requires_grad=False,
                     )
