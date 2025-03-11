@@ -108,7 +108,7 @@ def _rms(x: Tensor) -> Tensor:
 
 
 def _approx_sq_grad(v_row: Tensor, v_col: Tensor) -> Tensor:
-    r_factor = v_row / mint.mean(v_row, axis=-1, keepdim=True)
+    r_factor = v_row / mint.mean(v_row, dim=-1, keepdim=True)
     r_factor = mint.rsqrt(r_factor)
     r_factor = mint.unsqueeze(r_factor, -1)
     c_factor = mint.unsqueeze(v_col, -2)
