@@ -3,6 +3,8 @@ from typing import List, Tuple
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
+import mindspore.mint as mint
+import numpy as np
 from mindspore import Parameter, ParameterTuple, Tensor
 
 _adam_opt = ops.MultitypeFuncGraph("adam_opt")
@@ -49,12 +51,12 @@ def _update_run_op(
         param_ = param_ - lr * weight_decay * param_
 
     m_next = beta1 * m + (1 - beta1) * gradient
-    v_next = beta2 * v + (1 - beta2) * ops.square(gradient)
+    v_next = beta2 * v + (1 - beta2) * mint.square(gradient)
 
     m_hat = m_next / (1 - beta1_t)
     v_hat = v_next / (1 - beta2_t)
 
-    param_ = param_ - lr * m_hat / (ops.sqrt(v_hat) + eps)
+    param_ = param_ - lr * m_hat / (mint.sqrt(v_hat) + eps)
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
     ops.assign(m, m_next)
@@ -81,21 +83,13 @@ class AdamW(nn.Optimizer):
         self.eps = Tensor(eps, dtype=ms.float32)
         self.moments1 = ParameterTuple(
             [
-                Parameter(
-                    ops.zeros_like(x, dtype=ms.float32),
-                    name=x.name + "_m",
-                    requires_grad=False,
-                )
+                Parameter(np.zeros(x.shape, dtype=np.float32), name="m." + x.name)
                 for x in self._parameters
             ]
         )
         self.moments2 = ParameterTuple(
             [
-                Parameter(
-                    ops.zeros_like(x, dtype=ms.float32),
-                    name=x.name + "_v",
-                    requires_grad=False,
-                )
+                Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
                 for x in self._parameters
             ]
         )
