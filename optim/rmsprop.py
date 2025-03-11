@@ -3,6 +3,8 @@ from typing import List
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
+import mindspore.mint as mint
+import numpy as np
 from mindspore import Parameter, ParameterTuple, Tensor
 
 _rmsprop_opt = ops.MultitypeFuncGraph("rmsprop_opt")
@@ -40,9 +42,9 @@ def _update_run_op(
     if decay_flag:
         gradient = gradient + weight_decay * param_
 
-    v_next = alpha * v + (1 - alpha) * ops.square(gradient)
+    v_next = alpha * v + (1 - alpha) * mint.square(gradient)
 
-    param_ = param_ - lr * gradient / (ops.sqrt(v_next) + eps)
+    param_ = param_ - lr * gradient / (mint.sqrt(v_next) + eps)
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
     ops.assign(v, v_next)
@@ -67,11 +69,7 @@ class RMSprop(nn.Optimizer):
         self.eps = Tensor(eps, dtype=ms.float32)
         self.moments2 = ParameterTuple(
             [
-                Parameter(
-                    ops.zeros_like(x, dtype=ms.float32),
-                    name=x.name + "_v",
-                    requires_grad=False,
-                )
+                Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
                 for x in self._parameters
             ]
         )
