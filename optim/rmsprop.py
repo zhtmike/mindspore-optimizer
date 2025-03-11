@@ -69,10 +69,7 @@ class RMSprop(nn.Optimizer):
         self.eps = Tensor(eps, dtype=ms.float32)
         self.moments2 = ParameterTuple(
             [
-                Parameter(
-                    np.zeros(x.shape, dtype=np.float32),
-                    name="v." + x.name
-                )
+                Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
                 for x in self._parameters
             ]
         )
