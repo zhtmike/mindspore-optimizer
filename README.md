@@ -1,12 +1,5 @@
 # (Unofficial) Mindspore Optimizer
 
-An implementation of the Mindspore optimizer that functions similarly to PyTorch’s optimizer.
-
-Highlights:
-- support native FP16 / BF16 training, or AMP training. 
-- support group learning rate / group weight decay.
-- some optimizers *may offer* better speed compared with official ones. (e.g., adafactor), Feel free to experiment!
-
 ## Support Optimizers
 
 - [RMSprop](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
@@ -17,7 +10,7 @@ Highlights:
 ## Environment
 
 - python >= 3.9
-- mindspore >= 2.2.14
+- mindspore >= 2.5.0
 
 ## Test
 To test the optimizer, follow these steps using the CIFAR-10 dataset:
