@@ -200,11 +200,11 @@ class AdaFactor(nn.Optimizer):
         self.assignadd(self.global_step, self.global_step_increase_tensor)
 
         if self.relatvie_step:
-            rho = ops.minimum(1e-2, 1.0 / ops.sqrt(self.global_step))
+            rho = mint.minimum(1e-2, 1.0 / mint.sqrt(self.global_step))
         else:
             rho = lr
 
-        beta2 = 1.0 - ops.pow(self.global_step, self.decay_rate)
+        beta2 = 1.0 - mint.pow(self.global_step, self.decay_rate)
 
         if self.is_group:
             if self.is_group_lr:

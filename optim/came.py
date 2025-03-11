@@ -1,8 +1,10 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
+import mindspore.mint as mint
+import numpy as np
 from mindspore import Parameter, ParameterTuple, Tensor
 
 _came_opt = ops.MultitypeFuncGraph("came_opt")
@@ -55,28 +57,28 @@ def _update_run_op(
     param_ = ops.cast(param, ms.float32)
     gradient = ops.cast(gradient, ms.float32)
 
-    update = ops.square(gradient) + eps1
+    update = mint.square(gradient) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
     factored = len(gradient.shape) >= 2
     if factored:
-        v_row_next = beta2 * v_row + (1 - beta2) * ops.mean(update, axis=-1)
-        v_col_next = beta2 * v_col + (1 - beta2) * ops.mean(update, axis=-2)
+        v_row_next = beta2 * v_row + (1 - beta2) * mint.mean(update, dim=-1)
+        v_col_next = beta2 * v_col + (1 - beta2) * mint.mean(update, dim=-2)
         u = _approx_sq_grad(v_row_next, v_col_next)
         u = u * gradient
     else:
         v_next = beta2 * v + (1 - beta2) * update
-        u = ops.rsqrt(v_next) * gradient
+        u = mint.rsqrt(v_next) * gradient
 
-    u = u / ops.clamp(_rms(u) / d, min=1.0)
+    u = u / mint.clamp(_rms(u) / d, min=1.0)
 
     m_next = beta1 * m + (1 - beta1) * u
 
     v_res_row_next, v_res_col_next = None, None
     if factored:
-        res = ops.square(u - m_next) + eps2
-        v_res_row_next = beta3 * v_res_row + (1 - beta3) * ops.mean(res, axis=-1)
-        v_res_col_next = beta3 * v_res_col + (1 - beta3) * ops.mean(res, axis=-2)
+        res = mint.square(u - m_next) + eps2
+        v_res_row_next = beta3 * v_res_row + (1 - beta3) * mint.mean(res, dim=-1)
+        v_res_col_next = beta3 * v_res_col + (1 - beta3) * mint.mean(res, dim=-2)
         u = _approx_sq_grad(v_res_row_next, v_res_col_next)
         u = u * m_next
     else:
@@ -102,16 +104,16 @@ def _update_run_op(
 
 
 def _rms(x: Tensor) -> Tensor:
-    return ops.sqrt(ops.mean(ops.square(x)))
+    return mint.sqrt(mint.mean(mint.square(x)))
 
 
 def _approx_sq_grad(v_row: Tensor, v_col: Tensor) -> Tensor:
-    r_factor = v_row / ops.mean(v_row, axis=-1, keep_dims=True)
-    r_factor = ops.rsqrt(r_factor)
-    r_factor = ops.unsqueeze(r_factor, -1)
-    c_factor = ops.unsqueeze(v_col, -2)
-    c_factor = ops.rsqrt(c_factor)
-    return ops.mul(r_factor, c_factor)
+    r_factor = v_row / mint.mean(v_row, axis=-1, keepdim=True)
+    r_factor = mint.rsqrt(r_factor)
+    r_factor = mint.unsqueeze(r_factor, -1)
+    c_factor = mint.unsqueeze(v_col, -2)
+    c_factor = mint.rsqrt(c_factor)
+    return mint.mul(r_factor, c_factor)
 
 
 class CAME(nn.Optimizer):
@@ -142,74 +144,35 @@ class CAME(nn.Optimizer):
             if len(x.shape) >= 2:
                 v_row.append(
                     Parameter(
-                        ops.zeros(x.shape[:-1], dtype=ms.float32),
-                        name=x.name + "_v_row",
-                        requires_grad=False,
+                        np.zeros(x.shape[:-1], dtype=np.float32), name="v_row." + x.name
                     )
                 )
                 v_col.append(
                     Parameter(
-                        ops.zeros(x.shape[:-2] + x.shape[-1:], dtype=ms.float32),
-                        name=x.name + "_v_col",
-                        requires_grad=False,
+                        np.zeros(x.shape[:-2] + x.shape[-1:], dtype=np.float32),
+                        name="v_col." + x.name,
                     )
                 )
                 v_res_row.append(
                     Parameter(
-                        ops.zeros(x.shape[:-1], dtype=ms.float32),
-                        name=x.name + "_v_res_row",
-                        requires_grad=False,
+                        np.zeros(x.shape[:-1], dtype=np.float32),
+                        name="v_res_row." + x.name,
                     )
                 )
                 v_res_col.append(
                     Parameter(
-                        ops.zeros(x.shape[:-2] + x.shape[-1:], dtype=ms.float32),
-                        name=x.name + "_v_res_col",
-                        requires_grad=False,
+                        np.zeros(x.shape[:-2] + x.shape[-1:], dtype=np.float32),
+                        name="v_res_col." + x.name,
                     )
                 )
-                v.append(
-                    Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
-                        name=x.name + "_v",
-                        requires_grad=False,
-                    )
-                )
+                v.append(Parameter([], name="v." + x.name))
             else:
-                v_row.append(
-                    Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
-                        name=x.name + "_v_row",
-                        requires_grad=False,
-                    )
-                )
-                v_col.append(
-                    Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
-                        name=x.name + "_v_col",
-                        requires_grad=False,
-                    )
-                )
-                v_res_row.append(
-                    Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
-                        name=x.name + "_v_res_row",
-                        requires_grad=False,
-                    )
-                )
-                v_res_col.append(
-                    Parameter(
-                        ops.zeros((1,), dtype=ms.float32),
-                        name=x.name + "_v_res_col",
-                        requires_grad=False,
-                    )
-                )
+                v_row.append(Parameter([], name="v_row." + x.name))
+                v_col.append(Parameter([], name="v_col." + x.name))
+                v_res_row.append(Parameter([], name="v_res_row." + x.name))
+                v_res_col.append(Parameter([], name="v_res_col." + x.name))
                 v.append(
-                    Parameter(
-                        ops.zeros_like(x, dtype=ms.float32),
-                        name=x.name + "_v",
-                        requires_grad=False,
-                    )
+                    Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
                 )
 
         self.v_row = ParameterTuple(v_row)
@@ -220,11 +183,7 @@ class CAME(nn.Optimizer):
 
         self.m = ParameterTuple(
             [
-                Parameter(
-                    ops.zeros_like(x, dtype=ms.float32),
-                    name=x.name + "_m",
-                    requires_grad=False,
-                )
+                Parameter(np.zeros(x.shape, dtype=np.float32), name="m." + x.name)
                 for x in self._parameters
             ]
         )
