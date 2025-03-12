@@ -54,8 +54,6 @@ def _update_run_op(
 class RMSprop(nn.Optimizer):
     """Following https://pytorch.org/docs/stable/generated/torch.optim.RMSprop.html"""
 
-    _support_parallel_optimizer = True
-
     def __init__(
         self,
         params: List[Parameter],
@@ -76,7 +74,6 @@ class RMSprop(nn.Optimizer):
 
     @ms.jit
     def construct(self, gradients: List[Tensor]):
-        gradients = self.flatten_gradients(gradients)
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
@@ -127,8 +124,5 @@ class RMSprop(nn.Optimizer):
                 self.decay_flags,
                 self.optim_filter,
             )
-
-        if self.use_parallel:
-            self.broadcast_params(optim_result)
 
         return optim_result

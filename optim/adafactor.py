@@ -109,8 +109,6 @@ def _approx_sq_grad(v_row: Tensor, v_col: Tensor) -> Tensor:
 class AdaFactor(nn.Optimizer):
     """Following https://huggingface.co/docs/transformers/main_classes/optimizer_schedules#transformers.Adafactor"""
 
-    _support_parallel_optimizer = True
-
     def __init__(
         self,
         params: List[Parameter],
@@ -194,7 +192,6 @@ class AdaFactor(nn.Optimizer):
 
     @ms.jit
     def construct(self, gradients: List[Tensor]):
-        gradients = self.flatten_gradients(gradients)
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
@@ -273,8 +270,5 @@ class AdaFactor(nn.Optimizer):
                 self.decay_flags,
                 self.optim_filter,
             )
-
-        if self.use_parallel:
-            self.broadcast_params(optim_result)
 
         return optim_result
