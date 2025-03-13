@@ -12,13 +12,14 @@ from mindspore.dataset import Cifar10Dataset, Dataset
 from mindspore.dataset.vision import ToTensor
 from mindspore.train.callback import Callback, LossMonitor
 
-from optim import CAME, AdaFactor, AdamW, RMSprop
+from optim import CAME, AdaFactor, AdamW, RMSprop, Muon
 
 SUPPORT_OPTIMIZER = {
     "adafactor": AdaFactor,
     "adamw": AdamW,
     "rmsprop": RMSprop,
     "came": CAME,
+    "muon": Muon,
 }
 
 
