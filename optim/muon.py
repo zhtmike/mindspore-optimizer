@@ -10,6 +10,8 @@ from mindspore import Parameter, ParameterTuple, Tensor
 
 
 _muon_opt = ops.MultitypeFuncGraph("muon_opt")
+
+
 @_muon_opt.register(
     "Tensor",
     "Tensor",
@@ -68,7 +70,7 @@ def _update_run_op(
         u = zeropower_via_newtonschulz5(g, steps=steps)
         param_ = param_ - lr * u
     else:
-        # AdamW branch 
+        # AdamW branch
         m_next = beta1 * m + (1 - beta1) * gradient
         v_next = beta2 * v + (1 - beta2) * mint.square(gradient)
         m_hat = m_next / (1 - beta1_t)
@@ -122,7 +124,7 @@ class Muon(nn.Optimizer):
         momentum: float = 0.95,
         ns_steps: int = 5,
         adamw_betas: Tuple[float, float] = (0.9, 0.999),
-        adamw_eps: float=1e-8,
+        adamw_eps: float = 1e-8,
         nesterov: bool = True,
         weight_decay: float = 0.1,
     ) -> None:
@@ -140,7 +142,12 @@ class Muon(nn.Optimizer):
         )
         self.moments2 = ParameterTuple(
             [
-                Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name) if len(x.shape) != 2 else Parameter([], name="v." + x.name) for x in self._parameters
+                (
+                    Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
+                    if len(x.shape) != 2
+                    else Parameter([], name="v." + x.name)
+                )
+                for x in self._parameters
             ]
         )
         self.adamw_beta1_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
@@ -153,9 +160,12 @@ class Muon(nn.Optimizer):
     def adjust_lr(self):
         assert not self.dynamic_lr, "dynamic learning rate is not supported currently."
         if self.is_group_lr:
-            self.learning_rate = [self._adjust_lr_for_muon(x, param) for x, param in zip(self.learning_rate, self._parameters)]
+            self.learning_rate = [
+                self._adjust_lr_for_muon(x, param)
+                for x, param in zip(self.learning_rate, self._parameters)
+            ]
             return
-        
+
         learning_rate = list()
         for x in self._parameters:
             learning_rate.append(self._adjust_lr_for_muon(self.learning_rate, x))
