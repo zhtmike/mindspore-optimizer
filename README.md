@@ -6,6 +6,7 @@
 - [AdamW](https://arxiv.org/abs/1711.05101)
 - [AdaFactor](https://arxiv.org/abs/1804.04235)
 - [CAME](https://arxiv.org/abs/2307.02047)
+- [Muon](https://kellerjordan.github.io/posts/muon/)
 
 ## Environment
 
