@@ -29,6 +29,7 @@ _muon_opt = ops.MultitypeFuncGraph("muon_opt")
     "Tensor",
     "Bool",
     "Bool",
+    "Bool",
 )
 def _update_run_op(
     mu: Tensor,
@@ -45,6 +46,7 @@ def _update_run_op(
     m: Parameter,
     v: Parameter,
     gradient: Tensor,
+    use_muon: bool,
     decay_flag: bool,
     optim_filter: bool,
 ) -> Tensor:
@@ -58,7 +60,6 @@ def _update_run_op(
     if decay_flag:
         param_ = param_ - lr * weight_decay * param_
 
-    use_muon = len(param_.shape) == 2
     v_next = None
     if use_muon:
         # Muon branch
@@ -127,8 +128,12 @@ class Muon(nn.Optimizer):
         adamw_eps: float = 1e-8,
         nesterov: bool = True,
         weight_decay: float = 0.1,
+        adamw_parameter_names: Tuple[str, ...] = ("embed_tokens.", "lm_head."),
     ) -> None:
         super().__init__(lr, params, weight_decay)
+
+        if not isinstance(adamw_parameter_names, (tuple, list)):
+            raise ValueError("`adamw_parameter_names` must be a tuple or list.")
 
         self.momentum = Tensor(momentum, dtype=ms.float32)
         self.adamw_beta1 = Tensor(adamw_betas[0], dtype=ms.float32)
@@ -140,14 +145,25 @@ class Muon(nn.Optimizer):
                 for x in self._parameters
             ]
         )
+        self.use_muon = tuple(
+            [
+                (
+                    True
+                    if len(x.shape) == 2
+                    and not any([p in x.name for p in adamw_parameter_names])
+                    else False
+                )
+                for x in self._parameters
+            ]
+        )
         self.moments2 = ParameterTuple(
             [
                 (
                     Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
-                    if len(x.shape) != 2
+                    if not use_muon
                     else Parameter([], name="v." + x.name)
                 )
-                for x in self._parameters
+                for x, use_muon in zip(self._parameters, self.use_muon)
             ]
         )
         self.adamw_beta1_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
@@ -209,6 +225,7 @@ class Muon(nn.Optimizer):
             self.moments1,
             self.moments2,
             gradients,
+            self.use_muon,
             self.decay_flags,
             self.optim_filter,
         )
