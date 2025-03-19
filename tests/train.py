@@ -109,10 +109,15 @@ def main():
     )
     dataset, val_dataset = create_dataset()
 
+    if args.name == "muon":
+        kwargs = dict(adamw_parameter_names=("head.",))
+    else:
+        kwargs = dict()
+
     model = Model(
         net,
         loss_fn=nn.CrossEntropyLoss(),
-        optimizer=SUPPORT_OPTIMIZER[args.name](net.trainable_params()),
+        optimizer=SUPPORT_OPTIMIZER[args.name](net.trainable_params(), **kwargs),
         metrics={"accuracy"},
     )
     model.fit(
