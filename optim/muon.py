@@ -105,13 +105,15 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
     where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
     performance at all relative to UV^T, where USV^T = G is the SVD.
     """
-    assert len(G.shape) == 2
+    shape = G.shape
+    if len(shape) > 2:
+        G = mint.reshape(G, (G.shape[0], -1))
     a, b, c = (3.4445, -4.7750, 2.0315)
     X = G.bfloat16()
     if G.shape[0] > G.shape[1]:
         X = X.T
     # Ensure spectral norm is at most 1
-    X = X / (X.norm() + 1e-7)
+    X = X / (mint.norm(X) + 1e-7)
     # Perform the NS iterations
     for _ in range(steps):
         A = X @ X.T
@@ -122,6 +124,9 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
 
     if G.shape[0] > G.shape[1]:
         X = X.T
+
+    if len(shape) > 2:
+        X = mint.reshape(X, shape)
     return X
 
 
@@ -159,7 +164,7 @@ class Muon(nn.Optimizer):
             [
                 (
                     True
-                    if len(x.shape) == 2
+                    if len(x.shape) >= 2
                     and not any([p in x.name for p in adamw_parameter_names])
                     else False
                 )
