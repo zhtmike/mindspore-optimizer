@@ -176,6 +176,9 @@ class Muon(nn.Optimizer):
         self.lr_ratio = tuple([self._cal_lr_ratio(x) for x in self._parameters])
 
     def _cal_lr_ratio(self, param: Parameter) -> float:
+        if len(param.shape) != 2:
+            return 1.0
+
         A, B = param.shape
         # We adjust the learning rate and weight decay based on the size of the parameter matrix
         # as describted in the paper
