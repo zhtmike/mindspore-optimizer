@@ -92,8 +92,8 @@ class AdamW(nn.Optimizer):
             ]
         )
 
-        self.beta1_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
-        self.beta2_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
+        self.beta1_t = Parameter(Tensor(1, dtype=ms.float32))
+        self.beta2_t = Parameter(Tensor(1, dtype=ms.float32))
 
     @ms.jit
     def construct(self, gradients: List[Tensor]):

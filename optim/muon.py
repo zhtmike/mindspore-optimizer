@@ -166,8 +166,8 @@ class Muon(nn.Optimizer):
                 for x, use_muon in zip(self._parameters, self.use_muon)
             ]
         )
-        self.adamw_beta1_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
-        self.adamw_beta2_t = Parameter(Tensor(1, dtype=ms.float32), requires_grad=False)
+        self.adamw_beta1_t = Parameter(Tensor(1, dtype=ms.float32))
+        self.adamw_beta2_t = Parameter(Tensor(1, dtype=ms.float32))
         self.ns_steps = ns_steps
         self.nesterov = nesterov
         # adjust lr for muon
