@@ -40,8 +40,8 @@ def _update_run_op(
     eps: Tensor,
     nesterov: bool,
     steps: int,
+    lr: Parameter,
     weight_decay: Tensor,
-    lr: Tensor,
     param: Parameter,
     m: Parameter,
     v: Parameter,
@@ -69,7 +69,8 @@ def _update_run_op(
         else:
             g = m_next
         u = zeropower_via_newtonschulz5(g, steps=steps)
-        param_ = param_ - lr * u
+        adjusted_lr = _adjust_lr_for_muon(lr, param)
+        param_ = param_ - adjusted_lr * u
     else:
         # AdamW branch
         m_next = beta1 * m + (1 - beta1) * gradient
@@ -83,6 +84,15 @@ def _update_run_op(
     if not use_muon:
         ops.assign(v, v_next)
     return param_
+
+
+def _adjust_lr_for_muon(lr: Parameter, param: Parameter) -> float:
+    A, B = param.shape
+    # We adjust the learning rate and weight decay based on the size of the parameter matrix
+    # as describted in the paper
+    adjusted_ratio = 0.2 * math.sqrt(max(A, B))
+    adjusted_lr = lr * adjusted_ratio
+    return adjusted_lr
 
 
 def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
@@ -170,33 +180,6 @@ class Muon(nn.Optimizer):
         self.adamw_beta2_t = Parameter(Tensor(1, dtype=ms.float32))
         self.ns_steps = ns_steps
         self.nesterov = nesterov
-        # adjust lr for muon
-        self.adjust_lr()
-
-    def adjust_lr(self):
-        assert not self.dynamic_lr, "dynamic learning rate is not supported currently."
-        if self.is_group_lr:
-            self.learning_rate = [
-                self._adjust_lr_for_muon(x, param)
-                for x, param in zip(self.learning_rate, self._parameters)
-            ]
-            return
-
-        learning_rate = list()
-        for x in self._parameters:
-            learning_rate.append(self._adjust_lr_for_muon(self.learning_rate, x))
-        self.learning_rate = ParameterTuple(learning_rate)
-
-    def _adjust_lr_for_muon(self, lr: Parameter, param: Parameter) -> float:
-        if len(param.shape) != 2:
-            return lr
-
-        A, B = param.shape[:2]
-        # We adjust the learning rate and weight decay based on the size of the parameter matrix
-        # as describted in the paper
-        adjusted_ratio = 0.2 * math.sqrt(max(A, B))
-        adjusted_lr = Parameter(lr * adjusted_ratio, name="lr." + param.name)
-        return adjusted_lr
 
     @ms.jit
     def construct(self, gradients: List[Tensor]):
@@ -208,28 +191,52 @@ class Muon(nn.Optimizer):
         ops.assign(self.adamw_beta2_t, self.adamw_beta2_t * self.adamw_beta2)
 
         if self.is_group:
-            optim_result = self.hyper_map(
-                ops.partial(
-                    _muon_opt,
-                    self.momentum,
-                    self.adamw_beta1,
-                    self.adamw_beta2,
-                    self.adamw_beta1_t,
-                    self.adamw_beta2_t,
-                    self.adamw_eps,
-                    self.nesterov,
-                    self.ns_steps,
-                ),
-                weight_decay,
-                lr,
-                self._parameters,
-                self.moments1,
-                self.moments2,
-                gradients,
-                self.use_muon,
-                self.decay_flags,
-                self.optim_filter,
-            )
+            if self.is_group_lr:
+                optim_result = self.hyper_map(
+                    ops.partial(
+                        _muon_opt,
+                        self.momentum,
+                        self.adamw_beta1,
+                        self.adamw_beta2,
+                        self.adamw_beta1_t,
+                        self.adamw_beta2_t,
+                        self.adamw_eps,
+                        self.nesterov,
+                        self.ns_steps,
+                    ),
+                    lr,
+                    weight_decay,
+                    self._parameters,
+                    self.moments1,
+                    self.moments2,
+                    gradients,
+                    self.use_muon,
+                    self.decay_flags,
+                    self.optim_filter,
+                )
+            else:
+                optim_result = self.hyper_map(
+                    ops.partial(
+                        _muon_opt,
+                        self.momentum,
+                        self.adamw_beta1,
+                        self.adamw_beta2,
+                        self.adamw_beta1_t,
+                        self.adamw_beta2_t,
+                        self.adamw_eps,
+                        self.nesterov,
+                        self.ns_steps,
+                        lr,
+                    ),
+                    weight_decay,
+                    self._parameters,
+                    self.moments1,
+                    self.moments2,
+                    gradients,
+                    self.use_muon,
+                    self.decay_flags,
+                    self.optim_filter,
+                )
         else:
             optim_result = self.hyper_map(
                 ops.partial(
@@ -242,9 +249,9 @@ class Muon(nn.Optimizer):
                     self.adamw_eps,
                     self.nesterov,
                     self.ns_steps,
+                    lr,
                     weight_decay,
                 ),
-                lr,
                 self._parameters,
                 self.moments1,
                 self.moments2,
