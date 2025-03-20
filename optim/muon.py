@@ -27,6 +27,7 @@ _muon_opt = ops.MultitypeFuncGraph("muon_opt")
     "Tensor",
     "Tensor",
     "Tensor",
+    "Number",
     "Bool",
     "Bool",
     "Bool",
@@ -46,6 +47,7 @@ def _update_run_op(
     m: Parameter,
     v: Parameter,
     gradient: Tensor,
+    ratio: float,
     use_muon: bool,
     decay_flag: bool,
     optim_filter: bool,
@@ -69,8 +71,7 @@ def _update_run_op(
         else:
             g = m_next
         u = zeropower_via_newtonschulz5(g, steps=steps)
-        adjusted_lr = _adjust_lr_for_muon(lr, param)
-        param_ = param_ - adjusted_lr * u
+        param_ = param_ - lr * ratio * u
     else:
         # AdamW branch
         m_next = beta1 * m + (1 - beta1) * gradient
@@ -84,15 +85,6 @@ def _update_run_op(
     if not use_muon:
         ops.assign(v, v_next)
     return param_
-
-
-def _adjust_lr_for_muon(lr: Parameter, param: Parameter) -> float:
-    A, B = param.shape
-    # We adjust the learning rate and weight decay based on the size of the parameter matrix
-    # as describted in the paper
-    adjusted_ratio = 0.2 * math.sqrt(max(A, B))
-    adjusted_lr = lr * adjusted_ratio
-    return adjusted_lr
 
 
 def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
@@ -181,6 +173,15 @@ class Muon(nn.Optimizer):
         self.ns_steps = ns_steps
         self.nesterov = nesterov
 
+        self.lr_ratio = tuple([self._cal_lr_ratio(x) for x in self._parameters])
+
+    def _cal_lr_ratio(self, param: Parameter) -> float:
+        A, B = param.shape
+        # We adjust the learning rate and weight decay based on the size of the parameter matrix
+        # as describted in the paper
+        adjusted_ratio = 0.2 * math.sqrt(max(A, B))
+        return adjusted_ratio
+
     @ms.jit
     def construct(self, gradients: List[Tensor]):
         weight_decay = self.get_weight_decay()
@@ -210,6 +211,7 @@ class Muon(nn.Optimizer):
                     self.moments1,
                     self.moments2,
                     gradients,
+                    self.lr_ratio,
                     self.use_muon,
                     self.decay_flags,
                     self.optim_filter,
@@ -233,6 +235,7 @@ class Muon(nn.Optimizer):
                     self.moments1,
                     self.moments2,
                     gradients,
+                    self.lr_ratio,
                     self.use_muon,
                     self.decay_flags,
                     self.optim_filter,
@@ -256,6 +259,7 @@ class Muon(nn.Optimizer):
                 self.moments1,
                 self.moments2,
                 gradients,
+                self.lr_ratio,
                 self.use_muon,
                 self.decay_flags,
                 self.optim_filter,
