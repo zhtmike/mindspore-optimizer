@@ -207,26 +207,50 @@ class Muon(nn.Optimizer):
         ops.assign(self.adamw_beta1_t, self.adamw_beta1_t * self.adamw_beta1)
         ops.assign(self.adamw_beta2_t, self.adamw_beta2_t * self.adamw_beta2)
 
-        optim_result = self.hyper_map(
-            ops.partial(
-                _muon_opt,
-                self.momentum,
-                self.adamw_beta1,
-                self.adamw_beta2,
-                self.adamw_beta1_t,
-                self.adamw_beta2_t,
-                self.adamw_eps,
-                self.nesterov,
-                self.ns_steps,
+        if self.is_group:
+            optim_result = self.hyper_map(
+                ops.partial(
+                    _muon_opt,
+                    self.momentum,
+                    self.adamw_beta1,
+                    self.adamw_beta2,
+                    self.adamw_beta1_t,
+                    self.adamw_beta2_t,
+                    self.adamw_eps,
+                    self.nesterov,
+                    self.ns_steps,
+                ),
                 weight_decay,
-            ),
-            lr,
-            self._parameters,
-            self.moments1,
-            self.moments2,
-            gradients,
-            self.use_muon,
-            self.decay_flags,
-            self.optim_filter,
-        )
+                lr,
+                self._parameters,
+                self.moments1,
+                self.moments2,
+                gradients,
+                self.use_muon,
+                self.decay_flags,
+                self.optim_filter,
+            )
+        else:
+            optim_result = self.hyper_map(
+                ops.partial(
+                    _muon_opt,
+                    self.momentum,
+                    self.adamw_beta1,
+                    self.adamw_beta2,
+                    self.adamw_beta1_t,
+                    self.adamw_beta2_t,
+                    self.adamw_eps,
+                    self.nesterov,
+                    self.ns_steps,
+                    weight_decay,
+                ),
+                lr,
+                self._parameters,
+                self.moments1,
+                self.moments2,
+                gradients,
+                self.use_muon,
+                self.decay_flags,
+                self.optim_filter,
+            )
         return optim_result
