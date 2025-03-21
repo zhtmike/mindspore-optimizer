@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import math
 import mindspore as ms
@@ -120,7 +120,11 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
 
     if G.shape[0] > G.shape[1]:
         G = G.T
-    return G.to(shape).to(dtype)
+
+    if len(shape) > 2:
+        G = mint.reshape(G, shape)
+
+    return G.to(dtype)
 
 
 class Muon(nn.Optimizer):
@@ -136,12 +140,14 @@ class Muon(nn.Optimizer):
         adamw_eps: float = 1e-8,
         nesterov: bool = True,
         weight_decay: float = 0.1,
-        adamw_parameter_names: Tuple[str, ...] = ("embed_tokens.", "lm_head."),
+        adamw_parameter_names: Optional[Tuple[str, ...]] = ("embed_tokens", "lm_head"),
     ) -> None:
         super().__init__(lr, params, weight_decay)
 
         if not isinstance(adamw_parameter_names, (tuple, list)):
             raise ValueError("`adamw_parameter_names` must be a tuple or list.")
+        if adamw_parameter_names is None:
+            adamw_parameter_names = tuple([])
 
         self.momentum = Tensor(momentum, dtype=ms.float32)
         self.adamw_beta1 = Tensor(adamw_betas[0], dtype=ms.float32)
@@ -179,11 +185,19 @@ class Muon(nn.Optimizer):
         self.ns_steps = ns_steps
         self.nesterov = nesterov
 
-        self.lr_ratio = tuple([self._cal_lr_ratio(x) for x in self._parameters])
+        self.lr_ratio = tuple(
+            [self._cal_lr_ratio(x, adamw_parameter_names) for x in self._parameters]
+        )
 
-    def _cal_lr_ratio(self, param: Parameter) -> float:
+    def _cal_lr_ratio(
+        self, param: Parameter, adamw_parameter_names: Optional[Tuple[str, ...]]
+    ) -> float:
         if len(param.shape) == 1:
             return 1.0
+
+        for name in adamw_parameter_names:
+            if name in param.name:
+                return 1.0
 
         A, B = param.shape[:2]
         # We adjust the learning rate and weight decay based on the size of the parameter matrix

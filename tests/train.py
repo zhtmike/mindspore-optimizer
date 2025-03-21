@@ -111,7 +111,7 @@ def main():
     dataset, val_dataset = create_dataset()
 
     if args.name == "muon":
-        kwargs = dict(adamw_parameter_names=("head.",))
+        kwargs = dict(adamw_parameter_names=("cls_token", "pos_embed", "head"))
     else:
         kwargs = dict()
 
