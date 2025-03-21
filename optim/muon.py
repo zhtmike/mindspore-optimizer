@@ -97,24 +97,30 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
     where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
     performance at all relative to UV^T, where USV^T = G is the SVD.
     """
-    assert len(G.shape) == 2
+    shape = G.shape
+    dtype = G.dtype
+    assert len(shape) >= 2
     a, b, c = (3.4445, -4.7750, 2.0315)
-    X = G.bfloat16()
+    G = G.bfloat16()
+
+    if len(shape) > 2:
+        G = mint.reshape(G, (G.shape[0], -1))
+
     if G.shape[0] > G.shape[1]:
-        X = X.T
+        G = G.T
     # Ensure spectral norm is at most 1
-    X = X / (mint.norm(X) + 1e-7)
+    G = G / (mint.norm(G) + 1e-7)
     # Perform the NS iterations
     for _ in range(steps):
-        A = X @ X.T
+        A = G @ G.T
         B = (
             b * A + c * A @ A
         )  # adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
-        X = a * X + B @ X
+        G = a * G + B @ G
 
     if G.shape[0] > G.shape[1]:
-        X = X.T
-    return X
+        G = G.T
+    return G.to(shape).to(dtype)
 
 
 class Muon(nn.Optimizer):
@@ -151,7 +157,7 @@ class Muon(nn.Optimizer):
             [
                 (
                     True
-                    if len(x.shape) == 2
+                    if len(x.shape) >= 2
                     and not any([p in x.name for p in adamw_parameter_names])
                     else False
                 )
@@ -176,10 +182,10 @@ class Muon(nn.Optimizer):
         self.lr_ratio = tuple([self._cal_lr_ratio(x) for x in self._parameters])
 
     def _cal_lr_ratio(self, param: Parameter) -> float:
-        if len(param.shape) != 2:
+        if len(param.shape) == 1:
             return 1.0
 
-        A, B = param.shape
+        A, B = param.shape[:2]
         # We adjust the learning rate and weight decay based on the size of the parameter matrix
         # as describted in the paper
         adjusted_ratio = 0.2 * math.sqrt(max(A, B))

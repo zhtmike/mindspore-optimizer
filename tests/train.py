@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import mindspore as ms
-import mindspore.nn as nn
+import mindspore.mint as mint
 import numpy as np
 from mindcv.models.vit import VisionTransformer
 from mindspore import Model
@@ -69,6 +69,7 @@ class TimeMonitor(Callback):
 def create_dataset() -> Tuple[Dataset, Dataset]:
     data_path = "tests/data/cifar-10-batches-bin"
 
+    ms.dataset.config.set_num_parallel_workers(2)
     transforms = [ToTensor()]
 
     dataset = Cifar10Dataset(data_path, usage="train", shuffle=True)
@@ -116,7 +117,7 @@ def main():
 
     model = Model(
         net,
-        loss_fn=nn.CrossEntropyLoss(),
+        loss_fn=mint.nn.CrossEntropyLoss(),
         optimizer=SUPPORT_OPTIMIZER[args.name](net.trainable_params(), **kwargs),
         metrics={"accuracy"},
     )
