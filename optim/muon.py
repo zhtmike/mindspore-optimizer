@@ -106,7 +106,8 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
     if len(shape) > 2:
         G = mint.reshape(G, (G.shape[0], -1))
 
-    if G.shape[0] > G.shape[1]:
+    need_transpose = G.shape[0] > G.shape[1]
+    if need_transpose:
         G = G.T
     # Ensure spectral norm is at most 1
     G = G / (mint.norm(G) + 1e-7)
@@ -118,7 +119,7 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
         )  # adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
         G = a * G + B @ G
 
-    if G.shape[0] > G.shape[1]:
+    if need_transpose:
         G = G.T
 
     if len(shape) > 2:
