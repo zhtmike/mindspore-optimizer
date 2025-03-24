@@ -186,18 +186,15 @@ class Muon(nn.Optimizer):
         self.nesterov = nesterov
 
         self.lr_ratio = tuple(
-            [self._cal_lr_ratio(x, adamw_parameter_names) for x in self._parameters]
+            [
+                self._cal_lr_ratio(x, use_muon)
+                for x, use_muon in zip(self._parameters, self.use_muon)
+            ]
         )
 
-    def _cal_lr_ratio(
-        self, param: Parameter, adamw_parameter_names: Optional[Tuple[str, ...]]
-    ) -> float:
-        if len(param.shape) == 1:
+    def _cal_lr_ratio(self, param: Parameter, use_muon: bool) -> float:
+        if not use_muon:
             return 1.0
-
-        for name in adamw_parameter_names:
-            if name in param.name:
-                return 1.0
 
         A, B = param.shape[:2]
         # We adjust the learning rate and weight decay based on the size of the parameter matrix
