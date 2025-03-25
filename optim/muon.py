@@ -78,7 +78,8 @@ def _update_run_op(
         v_next = beta2 * v + (1 - beta2) * mint.square(gradient)
         m_hat = m_next / (1 - beta1_t)
         v_hat = v_next / (1 - beta2_t)
-        param_ = param_ - lr * m_hat / (mint.sqrt(v_hat) + eps)
+        u = m_hat / (mint.sqrt(v_hat) + eps)
+        param_ = param_ - lr * u
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
     ops.assign(m, m_next)
@@ -142,6 +143,7 @@ class Muon(nn.Optimizer):
         nesterov: bool = True,
         weight_decay: float = 0.1,
         adamw_parameter_names: Optional[Tuple[str, ...]] = ("embed_tokens", "lm_head"),
+        rms_scale: float = 0.2,
     ) -> None:
         super().__init__(lr, params, weight_decay)
 
@@ -188,19 +190,21 @@ class Muon(nn.Optimizer):
 
         self.lr_ratio = tuple(
             [
-                self._cal_lr_ratio(x, use_muon)
+                self._cal_lr_ratio(x, use_muon, rms_scale=rms_scale)
                 for x, use_muon in zip(self._parameters, self.use_muon)
             ]
         )
 
-    def _cal_lr_ratio(self, param: Parameter, use_muon: bool) -> float:
+    def _cal_lr_ratio(
+        self, param: Parameter, use_muon: bool, rms_scale: float = 0.2
+    ) -> float:
         if not use_muon:
             return 1.0
 
         A, B = param.shape[:2]
         # We adjust the learning rate and weight decay based on the size of the parameter matrix
         # as describted in the paper
-        adjusted_ratio = 0.2 * math.sqrt(max(A, B))
+        adjusted_ratio = rms_scale * math.sqrt(max(A, B))
         return adjusted_ratio
 
     @ms.jit
