@@ -12,7 +12,7 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
 
 @_adafactor_opt.register(
     "Number",
-    "Number",
+    "Tensor",
     "Number",
     "Number",
     "Number",
@@ -30,7 +30,7 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
 )
 def _update_run_op(
     beta1: float,
-    beta2: float,
+    beta2: Parameter,
     eps1: float,
     eps2: float,
     d: float,
@@ -133,11 +133,12 @@ class AdaFactor(nn.Optimizer):
         self.decay_rate = decay_rate
         self.relatvie_step = relative_step
         if beta1 is None:
-            self.beta1 = Tensor(0.0, dtype=ms.float32)
+            self.beta1 = 0.0
             self.use_first_moment = False
         else:
-            self.beta1 = Tensor(beta1, dtype=ms.float32)
+            self.beta1 = beta1
             self.use_first_moment = True
+        self.beta2 = Parameter(Tensor(0, dtype=ms.float32), name="beta2")
 
         v_row, v_col, v = list(), list(), list()
         for x in self._parameters:
@@ -201,7 +202,7 @@ class AdaFactor(nn.Optimizer):
         else:
             rho = lr
 
-        beta2 = 1.0 - mint.pow(self.global_step, self.decay_rate)
+        self.beta2 = 1.0 - mint.pow(self.global_step, self.decay_rate)
 
         if self.is_group:
             if self.is_group_lr:
@@ -209,7 +210,7 @@ class AdaFactor(nn.Optimizer):
                     ops.partial(
                         _adafactor_opt,
                         self.beta1,
-                        beta2,
+                        self.beta2,
                         self.eps1,
                         self.eps2,
                         self.clip_threshold,
@@ -231,7 +232,7 @@ class AdaFactor(nn.Optimizer):
                     ops.partial(
                         _adafactor_opt,
                         self.beta1,
-                        beta2,
+                        self.beta2,
                         self.eps1,
                         self.eps2,
                         self.clip_threshold,
@@ -253,7 +254,7 @@ class AdaFactor(nn.Optimizer):
                 ops.partial(
                     _adafactor_opt,
                     self.beta1,
-                    beta2,
+                    self.beta2,
                     self.eps1,
                     self.eps2,
                     self.clip_threshold,
