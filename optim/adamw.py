@@ -36,7 +36,7 @@ def _update_run_op(
     param: Parameter,
     m: Parameter,
     v: Parameter,
-    gradient: Tensor,
+    g: Tensor,
     decay_flag: bool,
     optim_filter: bool,
 ) -> bool:
@@ -46,14 +46,14 @@ def _update_run_op(
     if decay_flag:
         param.add_(-lr * weight_decay * param)
 
-    m_next = mint.lerp(gradient, m, beta1)
-    v_next = mint.lerp(mint.square(gradient), v, beta2)
+    m_next = mint.lerp(g, m, beta1)
+    v_next = mint.lerp(mint.square(g), v, beta2)
 
     m_hat = m_next / (1 - beta1_t)
     v_hat = v_next / (1 - beta2_t)
 
-    u = m_hat / (mint.sqrt(v_hat) + eps)
-    param.add_(-lr * u)
+    g = m_hat / (mint.sqrt(v_hat) + eps)
+    param.add_(-lr * g)
 
     ops.assign(m, m_next)
     ops.assign(v, v_next)
