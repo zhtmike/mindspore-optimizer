@@ -65,9 +65,9 @@ def _update_run_op(
     v_next = None
     if use_muon:
         # Muon branch
-        m_next = mint.add(gradient, m, alpha=mu)
+        m_next = mint.lerp(gradient, m, mu)
         if nesterov:
-            g = mint.add(gradient, m_next, alpha=mu)
+            g = mint.lerp(gradient, m_next, mu)
         else:
             g = m_next
         u = zeropower_via_newtonschulz5(g, steps=steps)
