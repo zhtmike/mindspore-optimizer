@@ -94,7 +94,7 @@ def _update_run_op(
 
 
 def _rms(x: Tensor) -> Tensor:
-    return mint.sqrt(mint.mean(mint.square(x)))
+    return mint.norm(x, p=2) / (x.numel() ** 0.5)
 
 
 def _approx_sq_grad(v_row: Tensor, v_col: Tensor) -> Tensor:
