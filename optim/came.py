@@ -81,7 +81,7 @@ def _update_run_op(
     else:
         g = m_next
 
-    param_ = param_.add_(-lr * g)
+    param.add_(-lr * g)
 
     ops.assign(m, m_next)
     if factored:
