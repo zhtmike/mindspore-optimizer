@@ -54,6 +54,10 @@ def _update_run_op(
     gradient = ops.cast(gradient, ms.float32)
 
     alpha = mint.maximum(eps2, _rms(param_)) * rho
+
+    if decay_flag:
+        param_ = param_ - alpha * weight_decay * param_
+
     update = mint.square(gradient) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
@@ -75,9 +79,6 @@ def _update_run_op(
         u = m_next
 
     param_ = param_ - alpha * u
-
-    if decay_flag:
-        param_ = param_ - alpha * weight_decay * param_
 
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
