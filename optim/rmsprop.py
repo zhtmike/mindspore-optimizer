@@ -172,6 +172,8 @@ class RMSprop(nn.Optimizer):
                     _rmsprop_opt,
                     self.alpha,
                     self.eps,
+                    self.momentum,
+                    self.centered,
                     lr,
                     weight_decay,
                 ),
