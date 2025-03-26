@@ -46,46 +46,41 @@ def _update_run_op(
     param: Parameter,
     m: Parameter,
     v: Parameter,
-    gradient: Tensor,
+    g: Tensor,
     ratio: float,
     use_muon: bool,
     decay_flag: bool,
     optim_filter: bool,
-) -> Tensor:
+) -> bool:
     if not optim_filter:
-        return gradient
-
-    dtype = param.dtype
-    param_ = ops.cast(param, ms.float32)
-    gradient = ops.cast(gradient, ms.float32)
+        return False
 
     if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
+        param.add_(-lr * weight_decay * param)
 
     v_next = None
     if use_muon:
         # Muon branch
-        m_next = mint.lerp(gradient, m, mu)
+        m_next = mint.lerp(g, m, mu)
         if nesterov:
-            g = mint.lerp(gradient, m_next, mu)
+            g = mint.lerp(g, m_next, mu)
         else:
             g = m_next
-        u = zeropower_via_newtonschulz5(g, steps=steps)
-        param_ = param_ - lr * ratio * u
+        g = zeropower_via_newtonschulz5(g, steps=steps)
+        param.add_(-lr * ratio * g)
     else:
         # AdamW branch
-        m_next = mint.lerp(gradient, m, beta1)
-        v_next = mint.lerp(mint.square(gradient), v, beta2)
+        m_next = mint.lerp(g, m, beta1)
+        v_next = mint.lerp(mint.square(g), v, beta2)
         m_hat = m_next / (1 - beta1_t)
         v_hat = v_next / (1 - beta2_t)
-        u = m_hat / (mint.sqrt(v_hat) + eps)
-        param_ = param_ - lr * u
-    param_ = ops.cast(param_, dtype)
-    ops.assign(param, param_)
+        g = m_hat / (mint.sqrt(v_hat) + eps)
+        param.add_(-lr * g)
+
     ops.assign(m, m_next)
     if not use_muon:
         ops.assign(v, v_next)
-    return param_
+    return True
 
 
 def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
@@ -208,7 +203,7 @@ class Muon(nn.Optimizer):
         return adjusted_ratio
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]):
+    def construct(self, gradients: List[Tensor]) -> bool:
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)

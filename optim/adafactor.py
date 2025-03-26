@@ -42,46 +42,37 @@ def _update_run_op(
     v_row: Parameter,
     v_col: Parameter,
     v: Parameter,
-    gradient: Tensor,
+    g: Tensor,
     decay_flag: bool,
     optim_filter: bool,
-) -> Tensor:
+) -> bool:
     if not optim_filter:
-        return gradient
+        return False
 
-    dtype = param.dtype
-    param_ = ops.cast(param, ms.float32)
-    gradient = ops.cast(gradient, ms.float32)
-
-    alpha = mint.maximum(eps2, _rms(param_)) * rho
+    alpha = mint.maximum(eps2, _rms(param)) * rho
 
     if decay_flag:
-        param_ = param_ - alpha * weight_decay * param_
+        param.add_(-alpha * weight_decay * param)
 
-    update = mint.square(gradient) + eps1
+    u = mint.square(g) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
-    factored = len(gradient.shape) >= 2
+    factored = len(g.shape) >= 2
     if factored:
-        v_row_next = mint.lerp(mint.mean(update, dim=-1), v_row, beta2)
-        v_col_next = mint.lerp(mint.mean(update, dim=-2), v_col, beta2)
-        u = _approx_sq_grad(v_row_next, v_col_next)
-        u = u * gradient
+        v_row_next = mint.lerp(mint.mean(u, dim=-1), v_row, beta2)
+        v_col_next = mint.lerp(mint.mean(u, dim=-2), v_col, beta2)
+        u = _approx_sq_grad(v_row_next, v_col_next) * g
     else:
-        v_next = mint.lerp(update, v, beta2)
-        u = mint.rsqrt(v_next) * gradient
+        v_next = mint.lerp(u, v, beta2)
+        u = mint.rsqrt(v_next) * g
 
     u = u / mint.clamp(_rms(u) / d, min=1.0)
 
-    m_next = None
     if use_first_moment:
-        m_next = mint.lerp(u, m, beta1)
-        u = m_next
+        u = mint.lerp(u, m, beta1)
 
-    param_ = param_ - alpha * u
+    param.add_(-alpha * u)
 
-    param_ = ops.cast(param_, dtype)
-    ops.assign(param, param_)
     if factored:
         ops.assign(v_row, v_row_next)
         ops.assign(v_col, v_col_next)
@@ -89,9 +80,9 @@ def _update_run_op(
         ops.assign(v, v_next)
 
     if use_first_moment:
-        ops.assign(m, m_next)
+        ops.assign(m, u)
 
-    return param_
+    return True
 
 
 def _rms(x: Tensor) -> Tensor:
@@ -193,7 +184,7 @@ class AdaFactor(nn.Optimizer):
         return super().get_lr()
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]):
+    def construct(self, gradients: List[Tensor]) -> bool:
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)

@@ -13,6 +13,10 @@ _rmsprop_opt = ops.MultitypeFuncGraph("rmsprop_opt")
 @_rmsprop_opt.register(
     "Number",
     "Number",
+    "Number",
+    "Bool",
+    "Tensor",
+    "Tensor",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -24,32 +28,44 @@ _rmsprop_opt = ops.MultitypeFuncGraph("rmsprop_opt")
 def _update_run_op(
     alpha: float,
     eps: float,
+    momentum: float,
+    centered: bool,
     lr: Tensor,
     weight_decay: Tensor,
     param: Parameter,
     v: Parameter,
-    gradient: Tensor,
+    b: Parameter,
+    g_ave: Parameter,
+    g: Tensor,
     decay_flag: bool,
     optim_filter: bool,
-) -> Tensor:
+) -> bool:
     if not optim_filter:
-        return gradient
-
-    dtype = param.dtype
-    param_ = ops.cast(param, ms.float32)
-    gradient = ops.cast(gradient, ms.float32)
+        return False
 
     if decay_flag:
-        gradient = gradient + weight_decay * param_
+        g = g + weight_decay * param
 
-    v_next = mint.lerp(mint.square(gradient), v, alpha)
-    u = gradient / (mint.sqrt(v_next) + eps)
+    v_next = mint.lerp(mint.square(g), v, alpha)
 
-    param_ = param_ - lr * u
-    param_ = ops.cast(param_, dtype)
-    ops.assign(param, param_)
+    g_ave_next = None
+    if centered:
+        g_ave_next = mint.lerp(g, g_ave, alpha)
+        v_next.add_(-mint.square(g_ave_next))
+
+    if momentum > 0:
+        g = momentum * b + g / (mint.sqrt(v_next) + eps)
+    else:
+        g = g / (mint.sqrt(v_next) + eps)
+
+    param.add_(-lr * g)
+
     ops.assign(v, v_next)
-    return param_
+    if momentum > 0:
+        ops.assign(b, g)
+    if centered:
+        ops.assign(g_ave, g_ave_next)
+    return True
 
 
 class RMSprop(nn.Optimizer):
@@ -62,19 +78,48 @@ class RMSprop(nn.Optimizer):
         alpha: float = 0.99,
         eps: float = 1e-8,
         weight_decay: float = 0.0,
+        momentum: float = 0.0,
+        centered: bool = False,
     ) -> None:
         super().__init__(lr, params, weight_decay)
         self.alpha = alpha
         self.eps = eps
+        self.momentum = momentum
+        self.centered = centered
         self.moments2 = ParameterTuple(
             [
                 Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
                 for x in self._parameters
             ]
         )
+        if self.momentum > 0:
+            self.moments1 = ParameterTuple(
+                [
+                    Parameter(np.zeros(x.shape, dtype=np.float32), name="b." + x.name)
+                    for x in self._parameters
+                ]
+            )
+        else:
+            self.moments1 = ParameterTuple(
+                [Parameter([], name="b." + x.name) for x in self._parameters]
+            )
+
+        if self.centered:
+            self.gradient_ave = ParameterTuple(
+                [
+                    Parameter(
+                        np.zeros(x.shape, dtype=np.float32), name="g_ave." + x.name
+                    )
+                    for x in self._parameters
+                ]
+            )
+        else:
+            self.gradient_ave = ParameterTuple(
+                [Parameter([], name="g_ave." + x.name) for x in self._parameters]
+            )
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]):
+    def construct(self, gradients: List[Tensor]) -> bool:
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
@@ -86,11 +131,15 @@ class RMSprop(nn.Optimizer):
                         _rmsprop_opt,
                         self.alpha,
                         self.eps,
+                        self.momentum,
+                        self.centered,
                     ),
                     lr,
                     weight_decay,
                     self._parameters,
                     self.moments2,
+                    self.moments1,
+                    self.gradient_ave,
                     gradients,
                     self.decay_flags,
                     self.optim_filter,
@@ -101,11 +150,15 @@ class RMSprop(nn.Optimizer):
                         _rmsprop_opt,
                         self.alpha,
                         self.eps,
+                        self.momentum,
+                        self.centered,
                         lr,
                     ),
                     weight_decay,
                     self._parameters,
                     self.moments2,
+                    self.moments1,
+                    self.gradient_ave,
                     gradients,
                     self.decay_flags,
                     self.optim_filter,
@@ -116,11 +169,15 @@ class RMSprop(nn.Optimizer):
                     _rmsprop_opt,
                     self.alpha,
                     self.eps,
+                    self.momentum,
+                    self.centered,
                     lr,
                     weight_decay,
                 ),
                 self._parameters,
                 self.moments2,
+                self.moments1,
+                self.gradient_ave,
                 gradients,
                 self.decay_flags,
                 self.optim_filter,

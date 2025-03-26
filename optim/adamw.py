@@ -16,6 +16,8 @@ _adam_opt = ops.MultitypeFuncGraph("adam_opt")
     "Tensor",
     "Tensor",
     "Number",
+    "Bool",
+    "Tensor",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -31,39 +33,43 @@ def _update_run_op(
     beta1_t: Parameter,
     beta2_t: Parameter,
     eps: float,
+    amsgrad: bool,
     lr: Tensor,
     weight_decay: Tensor,
     param: Parameter,
     m: Parameter,
     v: Parameter,
-    gradient: Tensor,
+    v_max: Parameter,
+    g: Tensor,
     decay_flag: bool,
     optim_filter: bool,
-) -> Tensor:
+) -> bool:
     if not optim_filter:
-        return gradient
-
-    dtype = param.dtype
-    param_ = ops.cast(param, ms.float32)
-    gradient = ops.cast(gradient, ms.float32)
+        return False
 
     if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
+        param.add_(-lr * weight_decay * param)
 
-    m_next = mint.lerp(gradient, m, beta1)
-    v_next = mint.lerp(mint.square(gradient), v, beta2)
+    m_next = mint.lerp(g, m, beta1)
+    v_next = mint.lerp(mint.square(g), v, beta2)
 
     m_hat = m_next / (1 - beta1_t)
     v_hat = v_next / (1 - beta2_t)
 
-    u = m_hat / (mint.sqrt(v_hat) + eps)
-    param_ = param_ - lr * u
+    v_max_hat = None
+    if amsgrad:
+        v_max_hat = mint.maximum(v_max, v_hat)
+        g = m_hat / (mint.sqrt(v_max_hat) + eps)
+    else:
+        g = m_hat / (mint.sqrt(v_hat) + eps)
 
-    param_ = ops.cast(param_, dtype)
-    ops.assign(param, param_)
+    param.add_(-lr * g)
+
     ops.assign(m, m_next)
     ops.assign(v, v_next)
-    return param_
+    if amsgrad:
+        ops.assign(v_max, v_max_hat)
+    return True
 
 
 class AdamW(nn.Optimizer):
@@ -76,11 +82,13 @@ class AdamW(nn.Optimizer):
         betas: Tuple[float, float] = (0.9, 0.999),
         eps: float = 1e-8,
         weight_decay: float = 0.01,
+        amsgrad: bool = False,
     ) -> None:
         super().__init__(lr, params, weight_decay)
         self.beta1 = betas[0]
         self.beta2 = betas[1]
         self.eps = eps
+        self.amsgrad = amsgrad
         self.moments1 = ParameterTuple(
             [
                 Parameter(np.zeros(x.shape, dtype=np.float32), name="m." + x.name)
@@ -93,18 +101,31 @@ class AdamW(nn.Optimizer):
                 for x in self._parameters
             ]
         )
+        if self.amsgrad:
+            self.moments2_max = ParameterTuple(
+                [
+                    Parameter(
+                        np.zeros(x.shape, dtype=np.float32), name="v_max." + x.name
+                    )
+                    for x in self._parameters
+                ]
+            )
+        else:
+            self.moments2_max = ParameterTuple(
+                [Parameter([], name="v_max." + x.name) for x in self._parameters]
+            )
 
         self.beta1_t = Parameter(Tensor(1, dtype=ms.float32))
         self.beta2_t = Parameter(Tensor(1, dtype=ms.float32))
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]):
+    def construct(self, gradients: List[Tensor]) -> bool:
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
 
-        ops.assign(self.beta1_t, self.beta1_t * self.beta1)
-        ops.assign(self.beta2_t, self.beta2_t * self.beta2)
+        self.beta1_t = self.beta1_t * self.beta1
+        self.beta2_t = self.beta2_t * self.beta2
 
         if self.is_group:
             if self.is_group_lr:
@@ -116,12 +137,14 @@ class AdamW(nn.Optimizer):
                         self.beta1_t,
                         self.beta2_t,
                         self.eps,
+                        self.amsgrad,
                     ),
                     lr,
                     weight_decay,
                     self._parameters,
                     self.moments1,
                     self.moments2,
+                    self.moments2_max,
                     gradients,
                     self.decay_flags,
                     self.optim_filter,
@@ -135,12 +158,14 @@ class AdamW(nn.Optimizer):
                         self.beta1_t,
                         self.beta2_t,
                         self.eps,
+                        self.amsgrad,
                         lr,
                     ),
                     weight_decay,
                     self._parameters,
                     self.moments1,
                     self.moments2,
+                    self.moments2_max,
                     gradients,
                     self.decay_flags,
                     self.optim_filter,
@@ -154,12 +179,14 @@ class AdamW(nn.Optimizer):
                     self.beta1_t,
                     self.beta2_t,
                     self.eps,
+                    self.amsgrad,
                     lr,
                     weight_decay,
                 ),
                 self._parameters,
                 self.moments1,
                 self.moments2,
+                self.moments2_max,
                 gradients,
                 self.decay_flags,
                 self.optim_filter,

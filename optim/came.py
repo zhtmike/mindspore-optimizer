@@ -46,32 +46,27 @@ def _update_run_op(
     v_res_row: Parameter,
     v_res_col: Parameter,
     v: Parameter,
-    gradient: Tensor,
+    g: Tensor,
     decay_flag: bool,
     optim_filter: bool,
-) -> Tensor:
+) -> bool:
     if not optim_filter:
-        return gradient
-
-    dtype = param.dtype
-    param_ = ops.cast(param, ms.float32)
-    gradient = ops.cast(gradient, ms.float32)
+        return False
 
     if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
+        param.add_(-lr * weight_decay * param)
 
-    update = mint.square(gradient) + eps1
+    u = mint.square(g) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
-    factored = len(gradient.shape) >= 2
+    factored = len(g.shape) >= 2
     if factored:
-        v_row_next = mint.lerp(mint.mean(update, dim=-1), v_row, beta2)
-        v_col_next = mint.lerp(mint.mean(update, dim=-2), v_col, beta2)
-        u = _approx_sq_grad(v_row_next, v_col_next)
-        u = u * gradient
+        v_row_next = mint.lerp(mint.mean(u, dim=-1), v_row, beta2)
+        v_col_next = mint.lerp(mint.mean(u, dim=-2), v_col, beta2)
+        u = _approx_sq_grad(v_row_next, v_col_next) * g
     else:
-        v_next = mint.lerp(update, v, beta2)
-        u = mint.rsqrt(v_next) * gradient
+        v_next = mint.lerp(u, v, beta2)
+        u = mint.rsqrt(v_next) * g
 
     u = u / mint.clamp(_rms(u) / d, min=1.0)
 
@@ -82,15 +77,12 @@ def _update_run_op(
         res = mint.square(u - m_next) + eps2
         v_res_row_next = mint.lerp(mint.mean(res, dim=-1), v_res_row, beta3)
         v_res_col_next = mint.lerp(mint.mean(res, dim=-2), v_res_col, beta3)
-        u = _approx_sq_grad(v_res_row_next, v_res_col_next)
-        u = u * m_next
+        u = _approx_sq_grad(v_res_row_next, v_res_col_next) * m_next
     else:
         u = m_next
 
-    param_ = param_ - lr * u
+    param.add_(-lr * u)
 
-    param_ = ops.cast(param_, dtype)
-    ops.assign(param, param_)
     ops.assign(m, m_next)
     if factored:
         ops.assign(v_row, v_row_next)
@@ -100,7 +92,7 @@ def _update_run_op(
     else:
         ops.assign(v, v_next)
 
-    return param_
+    return True
 
 
 def _rms(x: Tensor) -> Tensor:
@@ -187,7 +179,7 @@ class CAME(nn.Optimizer):
         )
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]):
+    def construct(self, gradients: List[Tensor]) -> bool:
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
