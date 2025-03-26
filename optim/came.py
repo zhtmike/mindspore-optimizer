@@ -80,8 +80,8 @@ def _update_run_op(
     v_res_row_next, v_res_col_next = None, None
     if factored:
         res = mint.square(u - m_next) + eps2
-        v_res_row_next = beta3 * v_res_row + (1 - beta3) * mint.mean(res, dim=-1)
-        v_res_col_next = beta3 * v_res_col + (1 - beta3) * mint.mean(res, dim=-2)
+        v_res_row_next = mint.lerp(mint.mean(res, dim=-1), v_res_row, beta3)
+        v_res_col_next = mint.lerp(mint.mean(res, dim=-2), v_res_col, beta3)
         u = _approx_sq_grad(v_res_row_next, v_res_col_next)
         u = u * m_next
     else:
