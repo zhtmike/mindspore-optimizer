@@ -44,21 +44,21 @@ def _update_run_op(
         return False
 
     if decay_flag:
-        g.add_(weight_decay * param)
+        g = g + weight_decay * param
 
     v_next = mint.lerp(mint.square(g), v, alpha)
 
     g_ave_next = None
     if centered:
         g_ave_next = mint.lerp(g, g_ave, alpha)
-        v_next.add_(-mint.square(g_ave_next)) 
+        v_next.add_(-mint.square(g_ave_next))
 
     if momentum > 0:
         g = momentum * b + g / (mint.sqrt(v_next) + eps)
     else:
         g = g / (mint.sqrt(v_next) + eps)
 
-    param.add_(- lr * g)
+    param.add_(-lr * g)
 
     ops.assign(v, v_next)
     if momentum > 0:
@@ -101,25 +101,21 @@ class RMSprop(nn.Optimizer):
             )
         else:
             self.moments1 = ParameterTuple(
-                [
-                    Parameter([], name="b." + x.name)
-                    for x in self._parameters
-                ]
+                [Parameter([], name="b." + x.name) for x in self._parameters]
             )
-        
+
         if self.centered:
             self.gradient_ave = ParameterTuple(
                 [
-                    Parameter(np.zeros(x.shape, dtype=np.float32), name="g_ave." + x.name)
+                    Parameter(
+                        np.zeros(x.shape, dtype=np.float32), name="g_ave." + x.name
+                    )
                     for x in self._parameters
                 ]
             )
         else:
             self.gradient_ave = ParameterTuple(
-                [
-                    Parameter([], name="g_ave." + x.name)
-                    for x in self._parameters
-                ]
+                [Parameter([], name="g_ave." + x.name) for x in self._parameters]
             )
 
     @ms.jit
