@@ -23,6 +23,7 @@ _adam_opt = ops.MultitypeFuncGraph("adam_opt")
     "Tensor",
     "Tensor",
     "Tensor",
+    "Tensor",
     "Bool",
     "Bool",
 )
