@@ -60,7 +60,7 @@ def _update_run_op(
     gradient = ops.cast(gradient, ms.float32)
 
     if decay_flag:
-        param_ = mint.add(param_, param_, alpha=-lr * weight_decay)
+        param_ = param_ - lr * weight_decay * param_
 
     v_next = None
     if use_muon:
@@ -71,7 +71,7 @@ def _update_run_op(
         else:
             g = m_next
         u = zeropower_via_newtonschulz5(g, steps=steps)
-        param_ = mint.add(param_, u, alpha=-lr * ratio)
+        param_ = param_ - lr * ratio * u
     else:
         # AdamW branch
         m_next = mint.lerp(gradient, m, beta1)
@@ -79,7 +79,7 @@ def _update_run_op(
         m_hat = m_next / (1 - beta1_t)
         v_hat = v_next / (1 - beta2_t)
         u = m_hat / (mint.sqrt(v_hat) + eps)
-        param_ = mint.add(param_, u, alpha=-lr)
+        param_ = param_ - lr * u
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
     ops.assign(m, m_next)

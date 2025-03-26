@@ -40,12 +40,12 @@ def _update_run_op(
     gradient = ops.cast(gradient, ms.float32)
 
     if decay_flag:
-        gradient = mint.add(gradient, param_, alpha=weight_decay)
+        gradient = gradient + weight_decay * param_
 
     v_next = mint.lerp(mint.square(gradient), v, alpha)
     u = gradient / (mint.sqrt(v_next) + eps)
 
-    param_ = mint.add(param_, u, alpha=-lr)
+    param_ = param_ - lr * u
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
     ops.assign(v, v_next)

@@ -56,7 +56,7 @@ def _update_run_op(
     alpha = mint.maximum(eps2, _rms(param_)) * rho
 
     if decay_flag:
-        param_ = mint.add(param_, param_, alpha=-alpha * weight_decay)
+        param_ = param_ - alpha * weight_decay * param_
 
     update = mint.square(gradient) + eps1
 
@@ -78,7 +78,7 @@ def _update_run_op(
         m_next = mint.lerp(u, m, beta1)
         u = m_next
 
-    param_ = mint.add(param_, u, alpha=-alpha)
+    param_ = param_ - alpha * u
 
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)

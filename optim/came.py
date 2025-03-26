@@ -58,7 +58,7 @@ def _update_run_op(
     gradient = ops.cast(gradient, ms.float32)
 
     if decay_flag:
-        param_ = mint.add(param_, param_, alpha=-lr * weight_decay)
+        param_ = param_ - lr * weight_decay * param_
 
     update = mint.square(gradient) + eps1
 
@@ -87,7 +87,7 @@ def _update_run_op(
     else:
         u = m_next
 
-    param_ = mint.add(param_, u, alpha=-lr)
+    param_ = param_ - lr * u
 
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
@@ -104,7 +104,7 @@ def _update_run_op(
 
 
 def _rms(x: Tensor) -> Tensor:
-    return mint.sqrt(mint.mean(mint.square(x)))
+    return mint.norm(x, p=2) / (x.numel() ** 0.5)
 
 
 def _approx_sq_grad(v_row: Tensor, v_col: Tensor) -> Tensor:
