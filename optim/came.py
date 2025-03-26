@@ -11,12 +11,12 @@ _came_opt = ops.MultitypeFuncGraph("came_opt")
 
 
 @_came_opt.register(
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -31,12 +31,12 @@ _came_opt = ops.MultitypeFuncGraph("came_opt")
     "Bool",
 )
 def _update_run_op(
-    beta1: Tensor,
-    beta2: Tensor,
-    beta3: Tensor,
-    eps1: Tensor,
-    eps2: Tensor,
-    d: Tensor,
+    beta1: float,
+    beta2: float,
+    beta3: float,
+    eps1: float,
+    eps2: float,
+    d: float,
     lr: Tensor,
     weight_decay: Tensor,
     param: Parameter,
@@ -130,12 +130,12 @@ class CAME(nn.Optimizer):
     ) -> None:
         super().__init__(lr, params, weight_decay)
 
-        self.eps1 = Tensor(eps[0], dtype=ms.float32)
-        self.eps2 = Tensor(eps[1], dtype=ms.float32)
-        self.clip_threshold = Tensor(clip_threshold, dtype=ms.float32)
-        self.beta1 = Tensor(betas[0], dtype=ms.float32)
-        self.beta2 = Tensor(betas[1], dtype=ms.float32)
-        self.beta3 = Tensor(betas[2], dtype=ms.float32)
+        self.eps1 = eps[0]
+        self.eps2 = eps[1]
+        self.clip_threshold = clip_threshold
+        self.beta1 = betas[0]
+        self.beta2 = betas[1]
+        self.beta3 = betas[2]
 
         v_row, v_col, v_res_row, v_res_col, v = list(), list(), list(), list(), list()
         for x in self._parameters:

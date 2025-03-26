@@ -11,11 +11,11 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
 
 
 @_adafactor_opt.register(
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
     "Bool",
     "Tensor",
     "Tensor",
@@ -29,11 +29,11 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
     "Bool",
 )
 def _update_run_op(
-    beta1: Tensor,
-    beta2: Tensor,
-    eps1: Tensor,
-    eps2: Tensor,
-    d: Tensor,
+    beta1: float,
+    beta2: float,
+    eps1: float,
+    eps2: float,
+    d: float,
     use_first_moment: bool,
     rho: Tensor,
     weight_decay: Tensor,
@@ -128,10 +128,10 @@ class AdaFactor(nn.Optimizer):
         elif relative_step and lr is not None:
             raise ValueError("`lr should be None when `relatvie_step` is `True`.")
 
-        self.eps1 = Tensor(eps[0], dtype=ms.float32)
-        self.eps2 = Tensor(eps[1], dtype=ms.float32)
-        self.clip_threshold = Tensor(clip_threshold, dtype=ms.float32)
-        self.decay_rate = Tensor(decay_rate, dtype=ms.float32)
+        self.eps1 = eps[0]
+        self.eps2 = eps[1]
+        self.clip_threshold = clip_threshold
+        self.decay_rate = decay_rate
         self.relatvie_step = relative_step
         if beta1 is None:
             self.beta1 = Tensor(0.0, dtype=ms.float32)

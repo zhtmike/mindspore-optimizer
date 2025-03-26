@@ -11,11 +11,11 @@ _adam_opt = ops.MultitypeFuncGraph("adam_opt")
 
 
 @_adam_opt.register(
+    "Number",
+    "Number",
     "Tensor",
     "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
+    "Number",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -26,11 +26,11 @@ _adam_opt = ops.MultitypeFuncGraph("adam_opt")
     "Bool",
 )
 def _update_run_op(
-    beta1: Tensor,
-    beta2: Tensor,
+    beta1: float,
+    beta2: float,
     beta1_t: Parameter,
     beta2_t: Parameter,
-    eps: Tensor,
+    eps: float,
     lr: Tensor,
     weight_decay: Tensor,
     param: Parameter,
@@ -78,9 +78,9 @@ class AdamW(nn.Optimizer):
         weight_decay: float = 0.01,
     ) -> None:
         super().__init__(lr, params, weight_decay)
-        self.beta1 = Tensor(betas[0], dtype=ms.float32)
-        self.beta2 = Tensor(betas[1], dtype=ms.float32)
-        self.eps = Tensor(eps, dtype=ms.float32)
+        self.beta1 = betas[0]
+        self.beta2 = betas[1]
+        self.eps = eps
         self.moments1 = ParameterTuple(
             [
                 Parameter(np.zeros(x.shape, dtype=np.float32), name="m." + x.name)

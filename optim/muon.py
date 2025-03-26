@@ -13,12 +13,12 @@ _muon_opt = ops.MultitypeFuncGraph("muon_opt")
 
 
 @_muon_opt.register(
+    "Number",
+    "Number",
+    "Number",
     "Tensor",
     "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
+    "Number",
     "Bool",
     "Number",
     "Tensor",
@@ -33,12 +33,12 @@ _muon_opt = ops.MultitypeFuncGraph("muon_opt")
     "Bool",
 )
 def _update_run_op(
-    mu: Tensor,
-    beta1: Tensor,
-    beta2: Tensor,
+    mu: float,
+    beta1: float,
+    beta2: float,
     beta1_t: Parameter,
     beta2_t: Parameter,
-    eps: Tensor,
+    eps: float,
     nesterov: bool,
     steps: int,
     lr: Parameter,
@@ -152,10 +152,10 @@ class Muon(nn.Optimizer):
         if adamw_parameter_names is None:
             adamw_parameter_names = tuple([])
 
-        self.momentum = Tensor(momentum, dtype=ms.float32)
-        self.adamw_beta1 = Tensor(adamw_betas[0], dtype=ms.float32)
-        self.adamw_beta2 = Tensor(adamw_betas[1], dtype=ms.float32)
-        self.adamw_eps = Tensor(adamw_eps, dtype=ms.float32)
+        self.momentum = momentum
+        self.adamw_beta1 = adamw_betas[0]
+        self.adamw_beta2 = adamw_betas[1]
+        self.adamw_eps = adamw_eps
         self.moments1 = ParameterTuple(
             [
                 Parameter(np.zeros(x.shape, dtype=np.float32), name="m." + x.name)
