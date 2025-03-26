@@ -60,26 +60,26 @@ def _update_run_op(
     gradient = ops.cast(gradient, ms.float32)
 
     if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
+        param_ = mint.add(param_, param_, alpha=-lr * weight_decay)
 
     v_next = None
     if use_muon:
         # Muon branch
-        m_next = mu * m + gradient
+        m_next = mint.add(gradient, m, alpha=mu)
         if nesterov:
-            g = mu * m_next + gradient
+            g = mint.add(gradient, m_next, alpha=mu)
         else:
             g = m_next
         u = zeropower_via_newtonschulz5(g, steps=steps)
-        param_ = param_ - lr * ratio * u
+        param_ = mint.add(param_, u, alpha=-lr * ratio)
     else:
         # AdamW branch
-        m_next = beta1 * m + (1 - beta1) * gradient
-        v_next = beta2 * v + (1 - beta2) * mint.square(gradient)
+        m_next = mint.lerp(gradient, m, beta1)
+        v_next = mint.lerp(mint.square(gradient), v, beta2)
         m_hat = m_next / (1 - beta1_t)
         v_hat = v_next / (1 - beta2_t)
         u = m_hat / (mint.sqrt(v_hat) + eps)
-        param_ = param_ - lr * u
+        param_ = mint.add(param_, u, alpha=-lr)
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
     ops.assign(m, m_next)

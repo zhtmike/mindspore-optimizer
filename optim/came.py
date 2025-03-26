@@ -57,22 +57,25 @@ def _update_run_op(
     param_ = ops.cast(param, ms.float32)
     gradient = ops.cast(gradient, ms.float32)
 
+    if decay_flag:
+        param_ = mint.add(param_, param_, alpha=-lr * weight_decay)
+
     update = mint.square(gradient) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
     factored = len(gradient.shape) >= 2
     if factored:
-        v_row_next = beta2 * v_row + (1 - beta2) * mint.mean(update, dim=-1)
-        v_col_next = beta2 * v_col + (1 - beta2) * mint.mean(update, dim=-2)
+        v_row_next = mint.lerp(mint.mean(update, dim=-1), v_row, beta2)
+        v_col_next = mint.lerp(mint.mean(update, dim=-2), v_col, beta2)
         u = _approx_sq_grad(v_row_next, v_col_next)
         u = u * gradient
     else:
-        v_next = beta2 * v + (1 - beta2) * update
+        v_next = mint.lerp(update, v, beta2)
         u = mint.rsqrt(v_next) * gradient
 
     u = u / mint.clamp(_rms(u) / d, min=1.0)
 
-    m_next = beta1 * m + (1 - beta1) * u
+    m_next = mint.lerp(u, m, beta1)
 
     v_res_row_next, v_res_col_next = None, None
     if factored:
@@ -84,10 +87,7 @@ def _update_run_op(
     else:
         u = m_next
 
-    param_ = param_ - lr * u
-
-    if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
+    param_ = mint.add(param_, u, alpha=-lr)
 
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
