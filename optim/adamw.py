@@ -39,16 +39,12 @@ def _update_run_op(
     gradient: Tensor,
     decay_flag: bool,
     optim_filter: bool,
-) -> Tensor:
+) -> bool:
     if not optim_filter:
-        return gradient
-
-    dtype = param.dtype
-    param_ = ops.cast(param, ms.float32)
-    gradient = ops.cast(gradient, ms.float32)
+        return False
 
     if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
+        param.add_(-lr * weight_decay * param)
 
     m_next = mint.lerp(gradient, m, beta1)
     v_next = mint.lerp(mint.square(gradient), v, beta2)
@@ -57,13 +53,11 @@ def _update_run_op(
     v_hat = v_next / (1 - beta2_t)
 
     u = m_hat / (mint.sqrt(v_hat) + eps)
-    param_ = param_ - lr * u
+    param.add_(-lr * u)
 
-    param_ = ops.cast(param_, dtype)
-    ops.assign(param, param_)
     ops.assign(m, m_next)
     ops.assign(v, v_next)
-    return param_
+    return True
 
 
 class AdamW(nn.Optimizer):
@@ -98,13 +92,13 @@ class AdamW(nn.Optimizer):
         self.beta2_t = Parameter(Tensor(1, dtype=ms.float32))
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]):
+    def construct(self, gradients: List[Tensor]) -> bool:
         weight_decay = self.get_weight_decay()
         lr = self.get_lr()
         self.assignadd(self.global_step, self.global_step_increase_tensor)
 
-        ops.assign(self.beta1_t, self.beta1_t * self.beta1)
-        ops.assign(self.beta2_t, self.beta2_t * self.beta2)
+        self.beta1_t = self.beta1_t * self.beta1
+        self.beta2_t = self.beta2_t * self.beta2
 
         if self.is_group:
             if self.is_group_lr:
