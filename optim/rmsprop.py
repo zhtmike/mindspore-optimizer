@@ -48,6 +48,7 @@ def _update_run_op(
 
     v_next = mint.lerp(mint.square(g), v, alpha)
 
+    g_ave_next = None
     if centered:
         g_ave_next = mint.lerp(g, g_ave)
         v_next.add_(-mint.square(g_ave_next)) 
