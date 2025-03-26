@@ -11,12 +11,12 @@ _came_opt = ops.MultitypeFuncGraph("came_opt")
 
 
 @_came_opt.register(
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
+    "Number",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -31,12 +31,12 @@ _came_opt = ops.MultitypeFuncGraph("came_opt")
     "Bool",
 )
 def _update_run_op(
-    beta1: Tensor,
-    beta2: Tensor,
-    beta3: Tensor,
-    eps1: Tensor,
-    eps2: Tensor,
-    d: Tensor,
+    beta1: float,
+    beta2: float,
+    beta3: float,
+    eps1: float,
+    eps2: float,
+    d: float,
     lr: Tensor,
     weight_decay: Tensor,
     param: Parameter,
@@ -57,37 +57,37 @@ def _update_run_op(
     param_ = ops.cast(param, ms.float32)
     gradient = ops.cast(gradient, ms.float32)
 
+    if decay_flag:
+        param_ = param_ - lr * weight_decay * param_
+
     update = mint.square(gradient) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
     factored = len(gradient.shape) >= 2
     if factored:
-        v_row_next = beta2 * v_row + (1 - beta2) * mint.mean(update, dim=-1)
-        v_col_next = beta2 * v_col + (1 - beta2) * mint.mean(update, dim=-2)
+        v_row_next = mint.lerp(mint.mean(update, dim=-1), v_row, beta2)
+        v_col_next = mint.lerp(mint.mean(update, dim=-2), v_col, beta2)
         u = _approx_sq_grad(v_row_next, v_col_next)
         u = u * gradient
     else:
-        v_next = beta2 * v + (1 - beta2) * update
+        v_next = mint.lerp(update, v, beta2)
         u = mint.rsqrt(v_next) * gradient
 
     u = u / mint.clamp(_rms(u) / d, min=1.0)
 
-    m_next = beta1 * m + (1 - beta1) * u
+    m_next = mint.lerp(u, m, beta1)
 
     v_res_row_next, v_res_col_next = None, None
     if factored:
         res = mint.square(u - m_next) + eps2
-        v_res_row_next = beta3 * v_res_row + (1 - beta3) * mint.mean(res, dim=-1)
-        v_res_col_next = beta3 * v_res_col + (1 - beta3) * mint.mean(res, dim=-2)
+        v_res_row_next = mint.lerp(mint.mean(res, dim=-1), v_res_row, beta3)
+        v_res_col_next = mint.lerp(mint.mean(res, dim=-2), v_res_col, beta3)
         u = _approx_sq_grad(v_res_row_next, v_res_col_next)
         u = u * m_next
     else:
         u = m_next
 
     param_ = param_ - lr * u
-
-    if decay_flag:
-        param_ = param_ - lr * weight_decay * param_
 
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
@@ -104,7 +104,7 @@ def _update_run_op(
 
 
 def _rms(x: Tensor) -> Tensor:
-    return mint.sqrt(mint.mean(mint.square(x)))
+    return mint.norm(x, p=2) / (x.numel() ** 0.5)
 
 
 def _approx_sq_grad(v_row: Tensor, v_col: Tensor) -> Tensor:
@@ -130,12 +130,12 @@ class CAME(nn.Optimizer):
     ) -> None:
         super().__init__(lr, params, weight_decay)
 
-        self.eps1 = Tensor(eps[0], dtype=ms.float32)
-        self.eps2 = Tensor(eps[1], dtype=ms.float32)
-        self.clip_threshold = Tensor(clip_threshold, dtype=ms.float32)
-        self.beta1 = Tensor(betas[0], dtype=ms.float32)
-        self.beta2 = Tensor(betas[1], dtype=ms.float32)
-        self.beta3 = Tensor(betas[2], dtype=ms.float32)
+        self.eps1 = eps[0]
+        self.eps2 = eps[1]
+        self.clip_threshold = clip_threshold
+        self.beta1 = betas[0]
+        self.beta2 = betas[1]
+        self.beta3 = betas[2]
 
         v_row, v_col, v_res_row, v_res_col, v = list(), list(), list(), list(), list()
         for x in self._parameters:

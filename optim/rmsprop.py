@@ -11,8 +11,8 @@ _rmsprop_opt = ops.MultitypeFuncGraph("rmsprop_opt")
 
 
 @_rmsprop_opt.register(
-    "Tensor",
-    "Tensor",
+    "Number",
+    "Number",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -22,8 +22,8 @@ _rmsprop_opt = ops.MultitypeFuncGraph("rmsprop_opt")
     "Bool",
 )
 def _update_run_op(
-    alpha: Tensor,
-    eps: Tensor,
+    alpha: float,
+    eps: float,
     lr: Tensor,
     weight_decay: Tensor,
     param: Parameter,
@@ -42,9 +42,10 @@ def _update_run_op(
     if decay_flag:
         gradient = gradient + weight_decay * param_
 
-    v_next = alpha * v + (1 - alpha) * mint.square(gradient)
+    v_next = mint.lerp(mint.square(gradient), v, alpha)
+    u = gradient / (mint.sqrt(v_next) + eps)
 
-    param_ = param_ - lr * gradient / (mint.sqrt(v_next) + eps)
+    param_ = param_ - lr * u
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
     ops.assign(v, v_next)
@@ -63,8 +64,8 @@ class RMSprop(nn.Optimizer):
         weight_decay: float = 0.0,
     ) -> None:
         super().__init__(lr, params, weight_decay)
-        self.alpha = Tensor(alpha, dtype=ms.float32)
-        self.eps = Tensor(eps, dtype=ms.float32)
+        self.alpha = alpha
+        self.eps = eps
         self.moments2 = ParameterTuple(
             [
                 Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)

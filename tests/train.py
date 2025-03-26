@@ -69,7 +69,6 @@ class TimeMonitor(Callback):
 def create_dataset() -> Tuple[Dataset, Dataset]:
     data_path = "tests/data/cifar-10-batches-bin"
 
-    ms.dataset.config.set_num_parallel_workers(2)
     transforms = [ToTensor()]
 
     dataset = Cifar10Dataset(data_path, usage="train", shuffle=True)

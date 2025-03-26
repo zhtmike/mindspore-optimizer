@@ -11,11 +11,11 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
 
 
 @_adafactor_opt.register(
+    "Number",
     "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
+    "Number",
+    "Number",
+    "Number",
     "Bool",
     "Tensor",
     "Tensor",
@@ -29,11 +29,11 @@ _adafactor_opt = ops.MultitypeFuncGraph("adafactor_opt")
     "Bool",
 )
 def _update_run_op(
-    beta1: Tensor,
-    beta2: Tensor,
-    eps1: Tensor,
-    eps2: Tensor,
-    d: Tensor,
+    beta1: float,
+    beta2: Parameter,
+    eps1: float,
+    eps2: float,
+    d: float,
     use_first_moment: bool,
     rho: Tensor,
     weight_decay: Tensor,
@@ -54,30 +54,31 @@ def _update_run_op(
     gradient = ops.cast(gradient, ms.float32)
 
     alpha = mint.maximum(eps2, _rms(param_)) * rho
+
+    if decay_flag:
+        param_ = param_ - alpha * weight_decay * param_
+
     update = mint.square(gradient) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
     factored = len(gradient.shape) >= 2
     if factored:
-        v_row_next = beta2 * v_row + (1 - beta2) * mint.mean(update, dim=-1)
-        v_col_next = beta2 * v_col + (1 - beta2) * mint.mean(update, dim=-2)
+        v_row_next = mint.lerp(mint.mean(update, dim=-1), v_row, beta2)
+        v_col_next = mint.lerp(mint.mean(update, dim=-2), v_col, beta2)
         u = _approx_sq_grad(v_row_next, v_col_next)
         u = u * gradient
     else:
-        v_next = beta2 * v + (1 - beta2) * update
+        v_next = mint.lerp(update, v, beta2)
         u = mint.rsqrt(v_next) * gradient
 
     u = u / mint.clamp(_rms(u) / d, min=1.0)
 
     m_next = None
     if use_first_moment:
-        m_next = beta1 * m + (1 - beta1) * u
+        m_next = mint.lerp(u, m, beta1)
         u = m_next
 
     param_ = param_ - alpha * u
-
-    if decay_flag:
-        param_ = param_ - alpha * weight_decay * param_
 
     param_ = ops.cast(param_, dtype)
     ops.assign(param, param_)
@@ -94,7 +95,7 @@ def _update_run_op(
 
 
 def _rms(x: Tensor) -> Tensor:
-    return mint.sqrt(mint.mean(mint.square(x)))
+    return mint.norm(x, p=2) / (x.numel() ** 0.5)
 
 
 def _approx_sq_grad(v_row: Tensor, v_col: Tensor) -> Tensor:
@@ -127,17 +128,18 @@ class AdaFactor(nn.Optimizer):
         elif relative_step and lr is not None:
             raise ValueError("`lr should be None when `relatvie_step` is `True`.")
 
-        self.eps1 = Tensor(eps[0], dtype=ms.float32)
-        self.eps2 = Tensor(eps[1], dtype=ms.float32)
-        self.clip_threshold = Tensor(clip_threshold, dtype=ms.float32)
-        self.decay_rate = Tensor(decay_rate, dtype=ms.float32)
+        self.eps1 = eps[0]
+        self.eps2 = eps[1]
+        self.clip_threshold = clip_threshold
+        self.decay_rate = decay_rate
         self.relatvie_step = relative_step
         if beta1 is None:
-            self.beta1 = Tensor(0.0, dtype=ms.float32)
+            self.beta1 = 0.0
             self.use_first_moment = False
         else:
-            self.beta1 = Tensor(beta1, dtype=ms.float32)
+            self.beta1 = beta1
             self.use_first_moment = True
+        self.beta2 = Parameter(Tensor(0, dtype=ms.float32), name="beta2")
 
         v_row, v_col, v = list(), list(), list()
         for x in self._parameters:
@@ -201,7 +203,7 @@ class AdaFactor(nn.Optimizer):
         else:
             rho = lr
 
-        beta2 = 1.0 - mint.pow(self.global_step, self.decay_rate)
+        self.beta2 = 1.0 - mint.pow(self.global_step, self.decay_rate)
 
         if self.is_group:
             if self.is_group_lr:
@@ -209,7 +211,7 @@ class AdaFactor(nn.Optimizer):
                     ops.partial(
                         _adafactor_opt,
                         self.beta1,
-                        beta2,
+                        self.beta2,
                         self.eps1,
                         self.eps2,
                         self.clip_threshold,
@@ -231,7 +233,7 @@ class AdaFactor(nn.Optimizer):
                     ops.partial(
                         _adafactor_opt,
                         self.beta1,
-                        beta2,
+                        self.beta2,
                         self.eps1,
                         self.eps2,
                         self.clip_threshold,
@@ -253,7 +255,7 @@ class AdaFactor(nn.Optimizer):
                 ops.partial(
                     _adafactor_opt,
                     self.beta1,
-                    beta2,
+                    self.beta2,
                     self.eps1,
                     self.eps2,
                     self.clip_threshold,
