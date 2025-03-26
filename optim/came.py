@@ -56,32 +56,32 @@ def _update_run_op(
     if decay_flag:
         param.add_(-lr * weight_decay * param)
 
-    g = mint.square(g) + eps1
+    u = mint.square(g) + eps1
 
     v_row_next, v_col_next, v_next = None, None, None
     factored = len(g.shape) >= 2
     if factored:
-        v_row_next = mint.lerp(mint.mean(g, dim=-1), v_row, beta2)
-        v_col_next = mint.lerp(mint.mean(g, dim=-2), v_col, beta2)
-        g = _approx_sq_grad(v_row_next, v_col_next) * g
+        v_row_next = mint.lerp(mint.mean(u, dim=-1), v_row, beta2)
+        v_col_next = mint.lerp(mint.mean(u, dim=-2), v_col, beta2)
+        u = _approx_sq_grad(v_row_next, v_col_next) * g
     else:
-        v_next = mint.lerp(g, v, beta2)
-        g = mint.rsqrt(v_next) * g
+        v_next = mint.lerp(u, v, beta2)
+        u = mint.rsqrt(v_next) * g
 
-    g = g / mint.clamp(_rms(g) / d, min=1.0)
+    u = u / mint.clamp(_rms(u) / d, min=1.0)
 
-    m_next = mint.lerp(g, m, beta1)
+    m_next = mint.lerp(u, m, beta1)
 
     v_res_row_next, v_res_col_next = None, None
     if factored:
-        res = mint.square(g - m_next) + eps2
+        res = mint.square(u - m_next) + eps2
         v_res_row_next = mint.lerp(mint.mean(res, dim=-1), v_res_row, beta3)
         v_res_col_next = mint.lerp(mint.mean(res, dim=-2), v_res_col, beta3)
-        g = _approx_sq_grad(v_res_row_next, v_res_col_next) * m_next
+        u = _approx_sq_grad(v_res_row_next, v_res_col_next) * m_next
     else:
-        g = m_next
+        u = m_next
 
-    param.add_(-lr * g)
+    param.add_(-lr * u)
 
     ops.assign(m, m_next)
     if factored:
