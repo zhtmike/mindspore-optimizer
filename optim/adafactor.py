@@ -52,7 +52,7 @@ def _update_run_op(
     alpha = mint.maximum(eps2, _rms(param)) * rho
 
     if decay_flag:
-        param.sub_(alpha * weight_decay * param)
+        param.add_(-alpha * weight_decay * param)
 
     u = mint.square(g) + eps1
 
@@ -71,7 +71,7 @@ def _update_run_op(
     if use_first_moment:
         u = mint.lerp(u, m, beta1)
 
-    param.sub_(alpha * u)
+    param.add_(-alpha * u)
 
     if factored:
         ops.assign(v_row, v_row_next)

@@ -48,7 +48,7 @@ def _update_run_op(
         return False
 
     if decay_flag:
-        param.sub_(lr * weight_decay * param)
+        param.add_(-lr * weight_decay * param)
 
     m_next = mint.lerp(g, m, beta1)
     v_next = mint.lerp(mint.square(g), v, beta2)
@@ -63,7 +63,7 @@ def _update_run_op(
     else:
         g = m_hat / (mint.sqrt(v_hat) + eps)
 
-    param.sub_(lr * g)
+    param.add_(-lr * g)
 
     ops.assign(m, m_next)
     ops.assign(v, v_next)

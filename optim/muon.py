@@ -56,7 +56,7 @@ def _update_run_op(
         return False
 
     if decay_flag:
-        param.sub_(lr * weight_decay * param)
+        param.add_(-lr * weight_decay * param)
 
     v_next = None
     if use_muon:
@@ -67,7 +67,7 @@ def _update_run_op(
         else:
             g = m_next
         g = zeropower_via_newtonschulz5(g, steps=steps)
-        param.sub_(lr * ratio * g)
+        param.add_(-lr * ratio * g)
     else:
         # AdamW branch
         m_next = mint.lerp(g, m, beta1)
@@ -75,7 +75,7 @@ def _update_run_op(
         m_hat = m_next / (1 - beta1_t)
         v_hat = v_next / (1 - beta2_t)
         g = m_hat / (mint.sqrt(v_hat) + eps)
-        param.sub_(lr * g)
+        param.add_(-lr * g)
 
     ops.assign(m, m_next)
     if not use_muon:

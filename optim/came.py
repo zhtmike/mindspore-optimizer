@@ -54,7 +54,7 @@ def _update_run_op(
         return False
 
     if decay_flag:
-        param.sub_(lr * weight_decay * param)
+        param.add_(-lr * weight_decay * param)
 
     u = mint.square(g) + eps1
 
@@ -81,7 +81,7 @@ def _update_run_op(
     else:
         u = m_next
 
-    param.sub_(lr * u)
+    param.add_(-lr * u)
 
     ops.assign(m, m_next)
     if factored:
