@@ -51,14 +51,14 @@ def _update_run_op(
     g_ave_next = None
     if centered:
         g_ave_next = mint.lerp(g, g_ave, alpha)
-        v_next.add_(-mint.square(g_ave_next))
+        v_next.sub_(mint.square(g_ave_next))
 
     if momentum > 0:
         g = momentum * b + g / (mint.sqrt(v_next) + eps)
     else:
         g = g / (mint.sqrt(v_next) + eps)
 
-    param.add_(-lr * g)
+    param.sub_(lr * g)
 
     ops.assign(v, v_next)
     if momentum > 0:
