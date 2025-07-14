@@ -1,20 +1,22 @@
 import argparse
 import time
-from typing import List, Tuple
+from typing import Dict, List, Tuple, Type
 
 import matplotlib.pyplot as plt
 import mindspore as ms
 import mindspore.mint as mint
+import mindspore.nn as nn
 import numpy as np
+import tqdm
 from mindcv.models.vit import VisionTransformer
-from mindspore import Model
 from mindspore.dataset import Cifar10Dataset, Dataset
 from mindspore.dataset.vision import ToTensor
-from mindspore.train.callback import Callback, LossMonitor
+from mindspore.experimental.optim.optimizer import Optimizer
+from mindspore.train.metrics import Accuracy
 
-from optim import CAME, AdaFactor, AdamW, RMSprop, Muon
+from optim import CAME, AdaFactor, AdamW, Muon, RMSprop
 
-SUPPORT_OPTIMIZER = {
+SUPPORT_OPTIMIZER: Dict[str, Type[Optimizer]] = {
     "adafactor": AdaFactor,
     "adamw": AdamW,
     "rmsprop": RMSprop,
@@ -23,16 +25,14 @@ SUPPORT_OPTIMIZER = {
 }
 
 
-class LossDrawer(Callback):
-    def __init__(self):
+class LossDrawer:
+    def __init__(self) -> None:
         self.lr_records: List[float] = list()
 
-    def on_train_step_end(self, run_context):
-        cb_params = run_context.original_args()
-        loss = float(np.mean(cb_params.net_outputs.asnumpy()))
+    def update(self, loss: float) -> None:
         self.lr_records.append(loss)
 
-    def on_train_epoch_end(self, run_context):
+    def draw(self) -> None:
         plt.figure()
         plt.plot(self.lr_records, ".-")
         plt.grid()
@@ -42,23 +42,23 @@ class LossDrawer(Callback):
         plt.close()
 
 
-class TimeMonitor(Callback):
+class TimeMonitor:
     def __init__(self) -> None:
         self.epoch_start_time = 0
         self.step_start_time = 0
         self.durations: List[int] = list()
 
-    def on_train_epoch_begin(self, run_context) -> None:
+    def on_train_epoch_begin(self) -> None:
         self.epoch_start_time = time.time()
 
-    def on_train_step_begin(self, run_context) -> None:
+    def on_train_step_begin(self) -> None:
         self.step_start_time = time.time()
 
-    def on_train_step_end(self, run_context) -> None:
+    def on_train_step_end(self) -> None:
         duration = time.time() - self.step_start_time
         self.durations.append(duration)
 
-    def on_train_epoch_end(self, run_context) -> None:
+    def on_train_epoch_end(self) -> None:
         epoch_duration = time.time() - self.epoch_start_time
         avg_time = np.mean(self.durations)
         self.durations = list()
@@ -97,7 +97,6 @@ def main():
     args = parser.parse_args()
 
     ms.set_seed(0)
-    ms.set_context(mode=ms.GRAPH_MODE)
 
     net = VisionTransformer(
         image_size=32,
@@ -107,6 +106,8 @@ def main():
         num_heads=3,
         num_classes=10,
     )
+    net.construct = ms.jit(net.construct)
+
     dataset, val_dataset = create_dataset()
 
     if args.name == "muon":
@@ -114,15 +115,44 @@ def main():
     else:
         kwargs = dict()
 
-    model = Model(
-        net,
-        loss_fn=mint.nn.CrossEntropyLoss(),
-        optimizer=SUPPORT_OPTIMIZER[args.name](net.trainable_params(), **kwargs),
-        metrics={"accuracy"},
+    net_with_loss = nn.WithLossCell(net, mint.nn.CrossEntropyLoss())
+
+    optimizer = SUPPORT_OPTIMIZER[args.name](net.trainable_params(), **kwargs)
+
+    loss_and_grad_fn = ms.value_and_grad(
+        net_with_loss, grad_position=None, weights=optimizer.parameters
     )
-    model.fit(
-        10, dataset, val_dataset, callbacks=[LossMonitor(), LossDrawer(), TimeMonitor()]
-    )
+
+    loss_drawer = LossDrawer()
+    time_monitor = TimeMonitor()
+    metric = Accuracy()
+
+    for i in range(10):
+        net_with_loss.set_train(True)
+        time_monitor.on_train_epoch_begin()
+        for j, (input_, label) in enumerate(
+            dataset.create_tuple_iterator(num_epochs=1)
+        ):
+            time_monitor.on_train_step_begin()
+            loss, grad = loss_and_grad_fn(input_, label)
+            optimizer(grad)
+            time_monitor.on_train_step_end()
+            loss_drawer.update(loss.item())
+            print(f"epoch: {i}, step: {j}, loss: {loss.item():.3f}")
+        time_monitor.on_train_epoch_end()
+        loss_drawer.draw()
+
+        net_with_loss.set_train(False)
+        for input_, label in tqdm.tqdm(
+            val_dataset.create_tuple_iterator(num_epochs=1),
+            desc="validate",
+            total=len(val_dataset),
+        ):
+            pred = net(input_)
+            metric.update(pred, label)
+        accuracy = metric.eval()
+        print(f"validation accuracy: {accuracy:.2f}")
+        metric.clear()
 
 
 if __name__ == "__main__":

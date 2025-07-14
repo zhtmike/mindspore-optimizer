@@ -1,21 +1,20 @@
 from typing import List, Tuple
 
 import mindspore as ms
-import mindspore.nn as nn
-import mindspore.ops as ops
 import mindspore.mint as mint
-import numpy as np
+import mindspore.ops as ops
 from mindspore import Parameter, ParameterTuple, Tensor
+from mindspore.experimental.optim.optimizer import Optimizer
 
 _adam_opt = ops.MultitypeFuncGraph("adam_opt")
 
 
 @_adam_opt.register(
-    "Number",
-    "Number",
-    "Tensor",
-    "Tensor",
-    "Number",
+    "Float",
+    "Float",
+    "Float",
+    "Bool",
+    "Float",
     "Bool",
     "Tensor",
     "Tensor",
@@ -24,37 +23,32 @@ _adam_opt = ops.MultitypeFuncGraph("adam_opt")
     "Tensor",
     "Tensor",
     "Tensor",
-    "Bool",
-    "Bool",
 )
 def _update_run_op(
     beta1: float,
     beta2: float,
-    beta1_t: Parameter,
-    beta2_t: Parameter,
     eps: float,
     amsgrad: bool,
-    lr: Tensor,
-    weight_decay: Tensor,
+    weight_decay: float,
+    maximize: bool,
+    lr: Parameter,
+    step: Parameter,
     param: Parameter,
     m: Parameter,
     v: Parameter,
     v_max: Parameter,
     g: Tensor,
-    decay_flag: bool,
-    optim_filter: bool,
 ) -> bool:
-    if not optim_filter:
-        return False
+    if maximize:
+        g = mint.neg(g)
 
-    if decay_flag:
-        param.add_(-lr * weight_decay * param)
+    param.add_(-lr * weight_decay * param)
 
     m_next = mint.lerp(g, m, beta1)
     v_next = mint.lerp(mint.square(g), v, beta2)
 
-    m_hat = m_next / (1 - beta1_t)
-    v_hat = v_next / (1 - beta2_t)
+    m_hat = m_next / (1 - mint.pow(beta1, step))
+    v_hat = v_next / (1 - mint.pow(beta2, step))
 
     v_max_hat = None
     if amsgrad:
@@ -72,7 +66,7 @@ def _update_run_op(
     return True
 
 
-class AdamW(nn.Optimizer):
+class AdamW(Optimizer):
     """Following https://pytorch.org/docs/stable/generated/torch.optim.AdamW.html"""
 
     def __init__(
@@ -83,113 +77,88 @@ class AdamW(nn.Optimizer):
         eps: float = 1e-8,
         weight_decay: float = 0.01,
         amsgrad: bool = False,
+        *,
+        maximize: bool = False
     ) -> None:
-        super().__init__(lr, params, weight_decay)
-        self.beta1 = betas[0]
-        self.beta2 = betas[1]
-        self.eps = eps
-        self.amsgrad = amsgrad
-        self.moments1 = ParameterTuple(
-            [
-                Parameter(np.zeros(x.shape, dtype=np.float32), name="m." + x.name)
-                for x in self._parameters
-            ]
+        defaults = dict(
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            amsgrad=amsgrad,
+            maximize=maximize,
         )
-        self.moments2 = ParameterTuple(
-            [
-                Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
-                for x in self._parameters
-            ]
-        )
-        if self.amsgrad:
-            self.moments2_max = ParameterTuple(
+        super(AdamW, self).__init__(params, defaults)
+
+        self.exp_avg = self.parameters.clone("exp_avg", init="zeros")
+        self.exp_avg_sq = self.parameters.clone("exp_avg_sq", init="zeros")
+        if amsgrad:
+            self.max_exp_avg_sq = self.parameters.clone(
+                prefix="max_exp_avg_sq", init="zeros"
+            )
+        else:
+            self.max_exp_avg_sq = ParameterTuple(
                 [
-                    Parameter(
-                        np.zeros(x.shape, dtype=np.float32), name="v_max." + x.name
-                    )
-                    for x in self._parameters
+                    Parameter([], name="max_exp_avg_sq." + x.name)
+                    for x in self.parameters
                 ]
             )
-        else:
-            self.moments2_max = ParameterTuple(
-                [Parameter([], name="v_max." + x.name) for x in self._parameters]
-            )
 
-        self.beta1_t = Parameter(Tensor(1, dtype=ms.float32))
-        self.beta2_t = Parameter(Tensor(1, dtype=ms.float32))
+        self.state_step = Parameter(Tensor(0, dtype=ms.int32))
+        self.increase_tensor = Tensor(1, dtype=ms.int32)
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]) -> bool:
-        weight_decay = self.get_weight_decay()
-        lr = self.get_lr()
-        self.assignadd(self.global_step, self.global_step_increase_tensor)
+    def adamw(
+        self,
+        beta1: float,
+        beta2: float,
+        eps: float,
+        amsgrad: bool,
+        weight_decay: float,
+        maximize: bool,
+        lr: Parameter,
+        gradients: Tuple[Tensor],
+        start_id: int,
+        end_id: int,
+    ) -> bool:
+        optim_result = self.hyper_map(
+            ops.partial(
+                _adam_opt,
+                beta1,
+                beta2,
+                eps,
+                amsgrad,
+                weight_decay,
+                maximize,
+                lr,
+                self.state_step,
+            ),
+            self.parameters[start_id:end_id],
+            self.exp_avg[start_id:end_id],
+            self.exp_avg_sq[start_id:end_id],
+            self.max_exp_avg_sq[start_id:end_id],
+            gradients[start_id:end_id],
+        )
+        return optim_result
 
-        self.beta1_t = self.beta1_t * self.beta1
-        self.beta2_t = self.beta2_t * self.beta2
+    def construct(self, gradients: Tuple[Tensor]) -> bool:
+        self.state_step += self.increase_tensor
+        for group_id, group in enumerate(self.param_groups):
+            beta1, beta2 = group["betas"]
+            start_id = self.group_start_id[group_id]
+            end_id = self.group_start_id[group_id + 1]
 
-        if self.is_group:
-            if self.is_group_lr:
-                optim_result = self.hyper_map(
-                    ops.partial(
-                        _adam_opt,
-                        self.beta1,
-                        self.beta2,
-                        self.beta1_t,
-                        self.beta2_t,
-                        self.eps,
-                        self.amsgrad,
-                    ),
-                    lr,
-                    weight_decay,
-                    self._parameters,
-                    self.moments1,
-                    self.moments2,
-                    self.moments2_max,
-                    gradients,
-                    self.decay_flags,
-                    self.optim_filter,
-                )
-            else:
-                optim_result = self.hyper_map(
-                    ops.partial(
-                        _adam_opt,
-                        self.beta1,
-                        self.beta2,
-                        self.beta1_t,
-                        self.beta2_t,
-                        self.eps,
-                        self.amsgrad,
-                        lr,
-                    ),
-                    weight_decay,
-                    self._parameters,
-                    self.moments1,
-                    self.moments2,
-                    self.moments2_max,
-                    gradients,
-                    self.decay_flags,
-                    self.optim_filter,
-                )
-        else:
-            optim_result = self.hyper_map(
-                ops.partial(
-                    _adam_opt,
-                    self.beta1,
-                    self.beta2,
-                    self.beta1_t,
-                    self.beta2_t,
-                    self.eps,
-                    self.amsgrad,
-                    lr,
-                    weight_decay,
-                ),
-                self._parameters,
-                self.moments1,
-                self.moments2,
-                self.moments2_max,
+            self.adamw(
+                beta1,
+                beta2,
+                group["eps"],
+                group["amsgrad"],
+                group["weight_decay"],
+                group["maximize"],
+                group["lr"],
                 gradients,
-                self.decay_flags,
-                self.optim_filter,
+                start_id,
+                end_id,
             )
 
-        return optim_result
+        return True
