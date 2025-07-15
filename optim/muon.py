@@ -1,61 +1,55 @@
-from typing import List, Tuple, Optional
-
 import math
-import mindspore as ms
-import mindspore.nn as nn
-import mindspore.ops as ops
-import mindspore.mint as mint
-import numpy as np
-from mindspore import Parameter, ParameterTuple, Tensor
+from typing import List, Optional, Tuple, Union
 
+import mindspore as ms
+import mindspore.mint as mint
+import mindspore.ops as ops
+from mindspore import Parameter, ParameterTuple, Tensor
+from mindspore.experimental.optim.optimizer import Optimizer
 
 _muon_opt = ops.MultitypeFuncGraph("muon_opt")
 
 
 @_muon_opt.register(
-    "Number",
-    "Number",
-    "Number",
-    "Tensor",
-    "Tensor",
-    "Number",
+    "Float",
+    "Float",
+    "Float",
+    "Float",
     "Bool",
-    "Number",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Tensor",
-    "Number",
+    "Int",
+    "Float",
     "Bool",
-    "Bool",
+    "Tensor",
+    "Tensor",
+    "Tensor",
+    "Tensor",
+    "Tensor",
+    "Tensor",
+    "Float",
     "Bool",
 )
 def _update_run_op(
     mu: float,
     beta1: float,
     beta2: float,
-    beta1_t: Parameter,
-    beta2_t: Parameter,
     eps: float,
     nesterov: bool,
-    steps: int,
+    ns_steps: int,
+    weight_decay: float,
+    maximize: bool,
     lr: Parameter,
-    weight_decay: Tensor,
+    step: Parameter,
     param: Parameter,
     m: Parameter,
     v: Parameter,
     g: Tensor,
     ratio: float,
     use_muon: bool,
-    decay_flag: bool,
-    optim_filter: bool,
 ) -> bool:
-    if not optim_filter:
-        return False
+    if maximize:
+        g = mint.neg(g)
 
-    if decay_flag:
+    if weight_decay > 0:
         param.add_(-lr * weight_decay * param)
 
     v_next = None
@@ -66,14 +60,14 @@ def _update_run_op(
             g = mint.lerp(g, m_next, mu)
         else:
             g = m_next
-        g = zeropower_via_newtonschulz5(g, steps=steps)
+        g = zeropower_via_newtonschulz5(g, steps=ns_steps)
         param.add_(-lr * ratio * g)
     else:
         # AdamW branch
         m_next = mint.lerp(g, m, beta1)
         v_next = mint.lerp(mint.square(g), v, beta2)
-        m_hat = m_next / (1 - beta1_t)
-        v_hat = v_next / (1 - beta2_t)
+        m_hat = m_next / (1 - mint.pow(beta1, step))
+        v_hat = v_next / (1 - mint.pow(beta2, step))
         g = m_hat / (mint.sqrt(v_hat) + eps)
         param.add_(-lr * g)
 
@@ -124,13 +118,13 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
     return G.to(dtype)
 
 
-class Muon(nn.Optimizer):
+class Muon(Optimizer):
     """Following https://github.com/MoonshotAI/Moonlight"""
 
     def __init__(
         self,
         params: List[Parameter],
-        lr: float = 0.001,
+        lr: Union[float, Tensor] = 0.001,
         momentum: float = 0.95,
         ns_steps: int = 5,
         adamw_betas: Tuple[float, float] = (0.9, 0.999),
@@ -139,24 +133,28 @@ class Muon(nn.Optimizer):
         weight_decay: float = 0.1,
         adamw_parameter_names: Optional[Tuple[str, ...]] = ("embed_tokens", "lm_head"),
         rms_scale: float = 0.2,
+        *,
+        maximize: bool = False
     ) -> None:
-        super().__init__(lr, params, weight_decay)
-
-        if not isinstance(adamw_parameter_names, (tuple, list)):
-            raise ValueError("`adamw_parameter_names` must be a tuple or list.")
         if adamw_parameter_names is None:
             adamw_parameter_names = tuple([])
 
-        self.momentum = momentum
-        self.adamw_beta1 = adamw_betas[0]
-        self.adamw_beta2 = adamw_betas[1]
-        self.adamw_eps = adamw_eps
-        self.moments1 = ParameterTuple(
-            [
-                Parameter(np.zeros(x.shape, dtype=np.float32), name="m." + x.name)
-                for x in self._parameters
-            ]
+        if not isinstance(adamw_parameter_names, (tuple, list)):
+            raise ValueError("`adamw_parameter_names` must be a None, tuple or list.")
+
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            ns_steps=ns_steps,
+            adamw_betas=adamw_betas,
+            adamw_eps=adamw_eps,
+            nesterov=nesterov,
+            weight_decay=weight_decay,
+            maximize=maximize,
         )
+        super(Muon, self).__init__(params, defaults)
+
+        self.exp_avg = self.parameters.clone("exp_avg", init="zeros")
         self.use_muon = tuple(
             [
                 (
@@ -165,30 +163,31 @@ class Muon(nn.Optimizer):
                     and not any([p in x.name for p in adamw_parameter_names])
                     else False
                 )
-                for x in self._parameters
+                for x in self.parameters
             ]
         )
-        self.moments2 = ParameterTuple(
+        self.exp_avg_sq = ParameterTuple(
             [
                 (
-                    Parameter(np.zeros(x.shape, dtype=np.float32), name="v." + x.name)
+                    Parameter(
+                        mint.zeros(x.shape, dtype=x.dtype), name="exp_avg_sq." + x.name
+                    )
                     if not use_muon
-                    else Parameter([], name="v." + x.name)
+                    else Parameter([], name="exp_avg_sq." + x.name)
                 )
-                for x, use_muon in zip(self._parameters, self.use_muon)
+                for x, use_muon in zip(self.parameters, self.use_muon)
             ]
         )
-        self.adamw_beta1_t = Parameter(Tensor(1, dtype=ms.float32))
-        self.adamw_beta2_t = Parameter(Tensor(1, dtype=ms.float32))
-        self.ns_steps = ns_steps
-        self.nesterov = nesterov
 
         self.lr_ratio = tuple(
             [
                 self._cal_lr_ratio(x, use_muon, rms_scale=rms_scale)
-                for x, use_muon in zip(self._parameters, self.use_muon)
+                for x, use_muon in zip(self.parameters, self.use_muon)
             ]
         )
+
+        self.state_step = Parameter(Tensor(0, dtype=ms.int32))
+        self.increase_tensor = Tensor(1, dtype=ms.int32)
 
     def _cal_lr_ratio(
         self, param: Parameter, use_muon: bool, rms_scale: float = 0.2
@@ -203,85 +202,68 @@ class Muon(nn.Optimizer):
         return adjusted_ratio
 
     @ms.jit
-    def construct(self, gradients: List[Tensor]) -> bool:
-        weight_decay = self.get_weight_decay()
-        lr = self.get_lr()
-        self.assignadd(self.global_step, self.global_step_increase_tensor)
+    def muon(
+        self,
+        momentum: float,
+        beta1: float,
+        beta2: float,
+        eps: float,
+        nesterov: bool,
+        ns_steps: int,
+        weight_decay: float,
+        maximize: bool,
+        lr: Parameter,
+        gradients: Tuple[Tensor, ...],
+        ratio: Tuple[float, ...],
+        use_muon: Tuple[bool, ...],
+        start_id: int,
+        end_id: int,
+    ) -> bool:
+        optim_result = self.hyper_map(
+            ops.partial(
+                _muon_opt,
+                momentum,
+                beta1,
+                beta2,
+                eps,
+                nesterov,
+                ns_steps,
+                weight_decay,
+                maximize,
+                lr,
+                self.state_step,
+            ),
+            self.parameters[start_id:end_id],
+            self.exp_avg[start_id:end_id],
+            self.exp_avg_sq[start_id:end_id],
+            gradients[start_id:end_id],
+            ratio[start_id:end_id],
+            use_muon[start_id:end_id],
+        )
+        return optim_result
 
-        ops.assign(self.adamw_beta1_t, self.adamw_beta1_t * self.adamw_beta1)
-        ops.assign(self.adamw_beta2_t, self.adamw_beta2_t * self.adamw_beta2)
+    def construct(self, gradients: Tuple[Tensor, ...]) -> bool:
+        self.state_step += self.increase_tensor
+        for group_id, group in enumerate(self.param_groups):
+            beta1, beta2 = group["adamw_betas"]
+            start_id = self.group_start_id[group_id]
+            end_id = self.group_start_id[group_id + 1]
 
-        if self.is_group:
-            if self.is_group_lr:
-                optim_result = self.hyper_map(
-                    ops.partial(
-                        _muon_opt,
-                        self.momentum,
-                        self.adamw_beta1,
-                        self.adamw_beta2,
-                        self.adamw_beta1_t,
-                        self.adamw_beta2_t,
-                        self.adamw_eps,
-                        self.nesterov,
-                        self.ns_steps,
-                    ),
-                    lr,
-                    weight_decay,
-                    self._parameters,
-                    self.moments1,
-                    self.moments2,
-                    gradients,
-                    self.lr_ratio,
-                    self.use_muon,
-                    self.decay_flags,
-                    self.optim_filter,
-                )
-            else:
-                optim_result = self.hyper_map(
-                    ops.partial(
-                        _muon_opt,
-                        self.momentum,
-                        self.adamw_beta1,
-                        self.adamw_beta2,
-                        self.adamw_beta1_t,
-                        self.adamw_beta2_t,
-                        self.adamw_eps,
-                        self.nesterov,
-                        self.ns_steps,
-                        lr,
-                    ),
-                    weight_decay,
-                    self._parameters,
-                    self.moments1,
-                    self.moments2,
-                    gradients,
-                    self.lr_ratio,
-                    self.use_muon,
-                    self.decay_flags,
-                    self.optim_filter,
-                )
-        else:
-            optim_result = self.hyper_map(
-                ops.partial(
-                    _muon_opt,
-                    self.momentum,
-                    self.adamw_beta1,
-                    self.adamw_beta2,
-                    self.adamw_beta1_t,
-                    self.adamw_beta2_t,
-                    self.adamw_eps,
-                    self.nesterov,
-                    self.ns_steps,
-                    lr,
-                    weight_decay,
-                ),
-                self._parameters,
-                self.moments1,
-                self.moments2,
+            self.muon(
+                group["momentum"],
+                beta1,
+                beta2,
+                group["adamw_eps"],
+                group["nesterov"],
+                group["ns_steps"],
+                group["weight_decay"],
+                group["maximize"],
+                group["lr"],
                 gradients,
                 self.lr_ratio,
                 self.use_muon,
-                self.decay_flags,
-                self.optim_filter,
+                start_id,
+                end_id,
             )
-        return optim_result
+
+        return True

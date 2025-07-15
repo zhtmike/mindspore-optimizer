@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import mindspore as ms
 import mindspore.mint as mint
@@ -42,7 +42,8 @@ def _update_run_op(
     if maximize:
         g = mint.neg(g)
 
-    param.add_(-lr * weight_decay * param)
+    if weight_decay > 0:
+        param.add_(-lr * weight_decay * param)
 
     m_next = mint.lerp(g, m, beta1)
     v_next = mint.lerp(mint.square(g), v, beta2)
@@ -72,7 +73,7 @@ class AdamW(Optimizer):
     def __init__(
         self,
         params: List[Parameter],
-        lr: float = 0.001,
+        lr: Union[float, Tensor] = 0.001,
         betas: Tuple[float, float] = (0.9, 0.999),
         eps: float = 1e-8,
         weight_decay: float = 0.01,
@@ -117,7 +118,7 @@ class AdamW(Optimizer):
         weight_decay: float,
         maximize: bool,
         lr: Parameter,
-        gradients: Tuple[Tensor],
+        gradients: Tuple[Tensor, ...],
         start_id: int,
         end_id: int,
     ) -> bool:
@@ -141,7 +142,7 @@ class AdamW(Optimizer):
         )
         return optim_result
 
-    def construct(self, gradients: Tuple[Tensor]) -> bool:
+    def construct(self, gradients: Tuple[Tensor, ...]) -> bool:
         self.state_step += self.increase_tensor
         for group_id, group in enumerate(self.param_groups):
             beta1, beta2 = group["betas"]

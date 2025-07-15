@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import mindspore as ms
 import mindspore.mint as mint
@@ -73,7 +73,7 @@ class RMSprop(Optimizer):
     def __init__(
         self,
         params: List[Parameter],
-        lr: float = 0.01,
+        lr: Union[float, Tensor] = 0.01,
         alpha: float = 0.99,
         eps: float = 1e-8,
         weight_decay: float = 0.0,
@@ -83,11 +83,11 @@ class RMSprop(Optimizer):
     ) -> None:
         defaults = dict(
             lr=lr,
-            momentum=momentum,
             alpha=alpha,
             eps=eps,
-            centered=centered,
             weight_decay=weight_decay,
+            momentum=momentum,
+            centered=centered,
             maximize=maximize,
         )
         super(RMSprop, self).__init__(params, defaults)
@@ -125,7 +125,7 @@ class RMSprop(Optimizer):
         weight_decay: float,
         maximize: bool,
         lr: Parameter,
-        gradients: Tuple[Tensor],
+        gradients: Tuple[Tensor, ...],
         start_id: int,
         end_id: int,
     ) -> bool:
@@ -148,7 +148,7 @@ class RMSprop(Optimizer):
         )
         return optim_result
 
-    def construct(self, gradients: Tuple[Tensor]) -> bool:
+    def construct(self, gradients: Tuple[Tensor, ...]) -> bool:
         self.state_step += self.increase_tensor
 
         for group_id, group in enumerate(self.param_groups):

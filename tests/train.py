@@ -14,13 +14,11 @@ from mindspore.dataset.vision import ToTensor
 from mindspore.experimental.optim.optimizer import Optimizer
 from mindspore.train.metrics import Accuracy
 
-from optim import CAME, AdaFactor, AdamW, Muon, RMSprop
+from optim import AdamW, Muon, RMSprop
 
 SUPPORT_OPTIMIZER: Dict[str, Type[Optimizer]] = {
-    "adafactor": AdaFactor,
     "adamw": AdamW,
     "rmsprop": RMSprop,
-    "came": CAME,
     "muon": Muon,
 }
 
