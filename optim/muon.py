@@ -49,8 +49,8 @@ def _update_run_op(
     if maximize:
         g = mint.neg(g)
 
-    if weight_decay > 0:
-        param.add_(-lr * weight_decay * param)
+    if weight_decay != 0:
+        param.mul_(1 - lr * weight_decay)
 
     v_next = None
     if use_muon:

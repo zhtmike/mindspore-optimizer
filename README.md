@@ -4,14 +4,12 @@
 
 - [RMSprop](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
 - [AdamW](https://arxiv.org/abs/1711.05101)
-- [AdaFactor](https://arxiv.org/abs/1804.04235)
-- [CAME](https://arxiv.org/abs/2307.02047)
 - [Muon](https://kellerjordan.github.io/posts/muon/)
 
 ## Environment
 
 - python >= 3.9
-- mindspore >= 2.5.0
+- mindspore >= 2.6.0
 
 ## Test
 To test the optimizer, follow these steps using the CIFAR-10 dataset:
@@ -31,7 +29,7 @@ pip install mindcv
 2. Start training by running:
 
 ```bash
-PYTHONPATH=$(pwd):$PYTHONPATH python tests/train.py -n adafactor
+PYTHONPATH=$(pwd):$PYTHONPATH python tests/train.py -n adamw
 ```
 
 During training, the results will be displayed in the terminal, and an additional loss curve plot named `loss.jpg` will be saved.

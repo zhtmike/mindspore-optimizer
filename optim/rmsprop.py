@@ -40,7 +40,7 @@ def _update_run_op(
     if maximize:
         g = mint.neg(g)
 
-    if weight_decay > 0:
+    if weight_decay != 0:
         g.add_(weight_decay * param)
 
     v_next = mint.lerp(mint.square(g), v, alpha)
