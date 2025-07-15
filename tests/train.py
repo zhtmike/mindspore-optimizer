@@ -53,6 +53,7 @@ class TimeMonitor:
         self.step_start_time = time.time()
 
     def on_train_step_end(self) -> None:
+        ms.synchronize()
         duration = time.time() - self.step_start_time
         self.durations.append(duration)
 
