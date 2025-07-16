@@ -18,7 +18,6 @@ _muon_opt = ops.MultitypeFuncGraph("muon_opt")
     "Bool",
     "Int",
     "Float",
-    "Bool",
     "Tensor",
     "Tensor",
     "Tensor",
@@ -36,7 +35,6 @@ def _update_run_op(
     nesterov: bool,
     ns_steps: int,
     weight_decay: float,
-    maximize: bool,
     lr: Parameter,
     step: Parameter,
     param: Parameter,
@@ -46,30 +44,30 @@ def _update_run_op(
     ratio: float,
     use_muon: bool,
 ) -> bool:
-    if maximize:
-        g = mint.neg(g)
-
     if weight_decay != 0:
         param.mul_(1 - lr * weight_decay)
 
     v_next = None
     if use_muon:
         # Muon branch
-        m_next = mint.lerp(g, m, mu)
+        if g.ndim > 2:
+            g = g.view(g.shape[0], -1)
+        m_next = mu * m + g
         if nesterov:
-            g = mint.lerp(g, m_next, mu)
+            g = g.add(m_next, alpha=mu)
         else:
             g = m_next
         g = zeropower_via_newtonschulz5(g, steps=ns_steps)
-        param.add_(-lr * ratio * g)
+        param.add_(-(lr * ratio) * g)
     else:
         # AdamW branch
         m_next = mint.lerp(g, m, beta1)
         v_next = mint.lerp(mint.square(g), v, beta2)
-        m_hat = m_next / (1 - mint.pow(beta1, step))
-        v_hat = v_next / (1 - mint.pow(beta2, step))
-        g = m_hat / (mint.sqrt(v_hat) + eps)
-        param.add_(-lr * g)
+        g = m_next / (eps + mint.sqrt(v_next))
+        bias_correction1 = 1 - mint.pow(beta1, step)
+        bias_correction2 = 1 - mint.pow(beta2, step)
+        scale = bias_correction1 / bias_correction2**0.5
+        param.add_(-(lr / scale) * g)
 
     ops.assign(m, m_next)
     if not use_muon:
@@ -87,35 +85,24 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
     where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
     performance at all relative to UV^T, where USV^T = G is the SVD.
     """
-    shape = G.shape
-    dtype = G.dtype
-    assert len(shape) >= 2
+    assert len(G.shape) == 2
     a, b, c = (3.4445, -4.7750, 2.0315)
-    G = G.bfloat16()
-
-    if len(shape) > 2:
-        G = mint.reshape(G, (G.shape[0], -1))
-
-    need_transpose = G.shape[0] > G.shape[1]
-    if need_transpose:
-        G = G.T
+    X = G.bfloat16()
+    if G.shape[0] > G.shape[1]:
+        X = X.T
     # Ensure spectral norm is at most 1
-    G = G / (mint.norm(G) + 1e-7)
+    X = X / (mint.norm(X) + 1e-7)
     # Perform the NS iterations
     for _ in range(steps):
-        A = G @ G.T
+        A = X @ X.T
         B = (
             b * A + c * A @ A
         )  # adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
-        G = a * G + B @ G
+        X = a * X + B @ X
 
-    if need_transpose:
-        G = G.T
-
-    if len(shape) > 2:
-        G = mint.reshape(G, shape)
-
-    return G.to(dtype)
+    if G.shape[0] > G.shape[1]:
+        X = X.T
+    return X
 
 
 class Muon(Optimizer):
@@ -123,49 +110,43 @@ class Muon(Optimizer):
 
     def __init__(
         self,
-        params: List[Parameter],
-        lr: Union[float, Tensor] = 0.001,
+        lr: Union[float, Tensor] = 1e-3,
+        wd: float = 0.1,
+        muon_params: Optional[List[Parameter]] = None,
         momentum: float = 0.95,
-        ns_steps: int = 5,
-        adamw_betas: Tuple[float, float] = (0.9, 0.999),
-        adamw_eps: float = 1e-8,
         nesterov: bool = True,
-        weight_decay: float = 0.1,
-        adamw_parameter_names: Optional[Tuple[str, ...]] = ("embed_tokens", "lm_head"),
-        rms_scale: float = 0.2,
-        *,
-        maximize: bool = False
+        ns_steps: int = 5,
+        adamw_params: Optional[List[Parameter]] = None,
+        adamw_betas: Tuple[float, float] = (0.9, 0.95),
+        adamw_eps: float = 1e-8,
     ) -> None:
-        if adamw_parameter_names is None:
-            adamw_parameter_names = tuple([])
-
-        if not isinstance(adamw_parameter_names, (tuple, list)):
-            raise ValueError("`adamw_parameter_names` must be a None, tuple or list.")
 
         defaults = dict(
             lr=lr,
+            wd=wd,
             momentum=momentum,
+            nesterov=nesterov,
             ns_steps=ns_steps,
             adamw_betas=adamw_betas,
             adamw_eps=adamw_eps,
-            nesterov=nesterov,
-            weight_decay=weight_decay,
-            maximize=maximize,
         )
-        super(Muon, self).__init__(params, defaults)
+        params = list(muon_params)
+        adamw_params = list(adamw_params) if adamw_params is not None else []
+        params.extend(adamw_params)
+        super().__init__(params, defaults)
+        # Sort parameters into those for which we will use Muon, and those for which we will not
+        use_muon = list()
+        for p in muon_params:
+            # Use Muon for every parameter in muon_params which is >= 2D and doesn't look like an embedding or head layer
+            assert p.ndim == 2, p.ndim
+            use_muon.append(True)
+
+        for p in adamw_params:
+            # Do not use Muon for parameters in adamw_params
+            use_muon.append(False)
+        self.use_muon = tuple(use_muon)
 
         self.exp_avg = self.parameters.clone("exp_avg", init="zeros")
-        self.use_muon = tuple(
-            [
-                (
-                    True
-                    if len(x.shape) >= 2
-                    and not any([p in x.name for p in adamw_parameter_names])
-                    else False
-                )
-                for x in self.parameters
-            ]
-        )
         self.exp_avg_sq = ParameterTuple(
             [
                 (
@@ -181,7 +162,7 @@ class Muon(Optimizer):
 
         self.lr_ratio = tuple(
             [
-                self._cal_lr_ratio(x, use_muon, rms_scale=rms_scale)
+                self._cal_lr_ratio(x, use_muon)
                 for x, use_muon in zip(self.parameters, self.use_muon)
             ]
         )
@@ -211,7 +192,6 @@ class Muon(Optimizer):
         nesterov: bool,
         ns_steps: int,
         weight_decay: float,
-        maximize: bool,
         lr: Parameter,
         gradients: Tuple[Tensor, ...],
         ratio: Tuple[float, ...],
@@ -229,7 +209,6 @@ class Muon(Optimizer):
                 nesterov,
                 ns_steps,
                 weight_decay,
-                maximize,
                 lr,
                 self.state_step,
             ),
@@ -257,7 +236,6 @@ class Muon(Optimizer):
                 group["nesterov"],
                 group["ns_steps"],
                 group["weight_decay"],
-                group["maximize"],
                 group["lr"],
                 gradients,
                 self.lr_ratio,
