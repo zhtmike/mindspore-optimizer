@@ -94,11 +94,11 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int) -> Tensor:
     X = X / (mint.norm(X) + 1e-7)
     # Perform the NS iterations
     for _ in range(steps):
-        A = X @ X.T
-        B = (
-            b * A + c * A @ A
+        A = mint.matmul(X, X.T)
+        B = b * A + c * mint.matmul(
+            A, A
         )  # adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
-        X = a * X + B @ X
+        X = a * X + mint.matmul(B, X)
 
     if G.shape[0] > G.shape[1]:
         X = X.T
